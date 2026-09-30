@@ -2,8 +2,8 @@
  * pi-switch
  *
  * A Pi extension that keeps several API keys per provider and rotates to the
- * next one when a key runs out of balance or hits its rate limit. DeepSeek is
- * the first supported provider; the store is keyed by provider id.
+ * next one when a key runs out of balance or hits its rate limit. The provider
+ * list lives in `PROVIDERS`; everything else is provider-agnostic.
  *
  * How it works:
  *  - It replaces the built-in provider with a thin wrapper that reuses the
@@ -516,6 +516,35 @@ function importExistingKeys(providerId: string): number {
 }
 
 /**
+ * Drop Pi's stored credential for this provider when it holds exactly the key the
+ * user just deleted or replaced. Otherwise that value would come back through the
+ * built-in auth fallback (or a later import). Written atomically; Pi notices the
+ * revision change and reloads. Best effort: a failure must not break the menu.
+ */
+function forgetStoredKey(providerId: string, key: string): void {
+	try {
+		const path = join(agentDir(), "auth.json");
+		const parsed = JSON.parse(readFileSync(path, "utf8")) as Record<
+			string,
+			{ type?: string; key?: string } | undefined
+		>;
+		const entry = parsed[providerId];
+		if (!entry || entry.type !== "api_key" || entry.key !== key) return;
+		delete parsed[providerId];
+		const tmp = `${path}.tmp-${process.pid}`;
+		writeFileSync(tmp, `${JSON.stringify(parsed, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+		try {
+			chmodSync(tmp, 0o600);
+		} catch {
+			// best effort
+		}
+		renameSync(tmp, path);
+	} catch {
+		// best effort: no auth.json / unreadable / not a plain api_key entry
+	}
+}
+
+/**
  * Per-key submenu: use, relabel, replace the secret, or remove one key. Works on
  * the key id so index shifts can never target the wrong key.
  */
@@ -590,6 +619,7 @@ async function manageOneKey(providerId: string, interaction: ProviderAuthInterac
 					found.disabledAt = undefined;
 				}
 			});
+			forgetStoredKey(providerId, entry.key); // the replaced value must not linger in auth.json
 			interaction.notify({ type: "info", message: `Updated key to ${maskKey(replacement)}` });
 			return; // id changed; leave the submenu
 		}
@@ -607,6 +637,7 @@ async function manageOneKey(providerId: string, interaction: ProviderAuthInterac
 				mutatePool(providerId, (current) => {
 					current.keys = current.keys.filter((candidate) => candidate.id !== keyId);
 				});
+				forgetStoredKey(providerId, entry.key); // so the deleted key cannot come back
 				interaction.notify({ type: "info", message: `Removed ${maskKey(entry.key)}` });
 				return;
 			}
@@ -730,6 +761,7 @@ export const __internals = {
 	addKeyInteractive,
 	readStoredKey,
 	importExistingKeys,
+	forgetStoredKey,
 	manageOneKey,
 	runKeyPoolLogin,
 };

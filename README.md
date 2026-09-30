@@ -165,6 +165,7 @@ Because the retry happens at the provider layer and before any content, it does 
 - Errors that happen after content has already streamed are not retried.
 - The `/login` input is plain text (Pi behavior); the key is not masked.
 - pi-switch does not validate key format and does not probe keys at login time. A wrong key is accepted, then fails on the first real request (and is skipped automatically if a backup key exists).
+- Removing or replacing a key also clears Pi's stored credential for that provider when it holds the same value, so a deleted key cannot come back through Pi's built-in auth fallback or a later import.
 - Writes to the store are atomic. If `<agent-dir>/pi-switch.json` is not valid JSON, pi-switch leaves it untouched (never overwrites it), reports the path, and reads fall back to the provider's own auth until you fix or remove the file.
 
 ## Contributing

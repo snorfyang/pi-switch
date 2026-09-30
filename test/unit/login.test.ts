@@ -148,3 +148,43 @@ describe("runKeyPoolLogin", () => {
 		);
 	});
 });
+
+describe("stored credential cleanup", () => {
+	it("forgetStoredKey only removes a matching api_key entry", () => {
+		writeAuth("sk-a");
+		api.forgetStoredKey("deepseek", "sk-other");
+		expect(api.readStoredKey("deepseek")).toBe("sk-a");
+		api.forgetStoredKey("deepseek", "sk-a");
+		expect(api.readStoredKey("deepseek")).toBeUndefined();
+	});
+
+	it("removes Pi's stored credential when the matching key is deleted", async () => {
+		writeAuth("sk-a");
+		api.addKey("deepseek", "sk-a");
+		api.addKey("deepseek", "sk-b");
+		const id = api.makeKeyId("sk-a");
+		await api.runKeyPoolLogin("deepseek", "DeepSeek", scriptedInteraction([`key:${id}`, "remove", "yes", "done"]) as never);
+		expect(api.readStoredKey("deepseek")).toBeUndefined();
+	});
+
+	it("keeps a stored credential that is not the removed key", async () => {
+		writeAuth("sk-b");
+		api.addKey("deepseek", "sk-a");
+		api.addKey("deepseek", "sk-b");
+		const id = api.makeKeyId("sk-a");
+		await api.runKeyPoolLogin("deepseek", "DeepSeek", scriptedInteraction([`key:${id}`, "remove", "yes", "done"]) as never);
+		expect(api.readStoredKey("deepseek")).toBe("sk-b");
+	});
+
+	it("clears the stored credential when its key is replaced", async () => {
+		writeAuth("sk-a");
+		api.addKey("deepseek", "sk-a");
+		const id = api.makeKeyId("sk-a");
+		await api.runKeyPoolLogin("deepseek", "DeepSeek", scriptedInteraction([`key:${id}`, "edit", "sk-new", "done"]) as never);
+		expect(api.readStoredKey("deepseek")).toBeUndefined();
+	});
+
+	it("forgetStoredKey is a no-op without auth.json", () => {
+		expect(() => api.forgetStoredKey("deepseek", "sk-x")).not.toThrow();
+	});
+});
