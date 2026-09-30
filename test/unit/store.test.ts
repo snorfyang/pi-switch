@@ -46,9 +46,10 @@ describe("loadStore / saveStore", () => {
 		}
 	});
 
-	it("tolerates corrupt json", () => {
+	it("throws on corrupt json but degrades reads to no pool", () => {
 		writeFileSync(api.storePath(), "{ not json");
-		expect(api.loadStore()).toEqual({ version: 1, providers: {} });
+		expect(() => api.loadStore()).toThrow(/not valid JSON/);
+		expect(api.getPool("deepseek")).toBeUndefined();
 	});
 
 	it("skips malformed provider entries", () => {
@@ -108,5 +109,26 @@ describe("addKey / hasKeyValue / getPool / mutatePool", () => {
 			pool.activeIndex = 99;
 		});
 		expect(api.getPool("deepseek")?.activeIndex).toBe(0);
+	});
+});
+
+describe("store durability", () => {
+	it("refuses to write when the store is corrupt and leaves the file untouched", () => {
+		const bad = "{ not json";
+		writeFileSync(api.storePath(), bad);
+		expect(api.getPool("deepseek")).toBeUndefined();
+		expect(() => api.addKey("deepseek", "sk-x")).toThrow(/not valid JSON/);
+		expect(readFileSync(api.storePath(), "utf8")).toBe(bad);
+	});
+
+	it("keeps other providers when one provider changes", () => {
+		api.addKey("deepseek", "sk-a");
+		api.addKey("openai", "sk-b");
+		api.mutatePool("deepseek", (pool) => {
+			pool.keys[0].disabled = true;
+		});
+		const store = api.loadStore();
+		expect(store.providers.deepseek?.keys[0].disabled).toBe(true);
+		expect(store.providers.openai?.keys[0].key).toBe("sk-b");
 	});
 });

@@ -81,3 +81,14 @@ describe("formatKeyRow", () => {
 		expect(api.formatKeyRow("deepseek", entry, 1, false)).toBe("  #2 sk-abc...ijkl  [disabled: invalid key]");
 	});
 });
+
+describe("classifyFailure context", () => {
+	it("matches quota wording with context", () => {
+		expect(api.classifyFailure({ errorMessage: "You exceeded your current quota" })).toBe("balance");
+		expect(api.classifyFailure({ errorMessage: "billing hard limit reached" })).toBe("balance");
+	});
+
+	it("does not classify an unrelated billing phrase", () => {
+		expect(api.classifyFailure({ errorMessage: "update your billing address" })).toBeUndefined();
+	});
+});

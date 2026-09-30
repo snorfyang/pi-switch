@@ -19,7 +19,7 @@
  * Manage them through the normal login flow: `/login <provider>`.
  */
 
-import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -108,25 +108,44 @@ function dedupePool(pool: PoolState): PoolState {
 	return { keys, activeIndex };
 }
 
+/** The store exists but is not parseable. Never overwrite it; surface the path. */
+class StoreCorruptError extends Error {
+	constructor(path: string) {
+		super(`${path} is not valid JSON. Fix or remove that file, then retry; it was left untouched.`);
+		this.name = "StoreCorruptError";
+	}
+}
+
+function isEnoent(error: unknown): boolean {
+	return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
+}
+
 function loadStore(): StoreFile {
 	for (const path of [storePath(), ...legacyStorePaths()]) {
+		let raw: string;
 		try {
-			const raw = readFileSync(path, "utf8");
-			const parsed = JSON.parse(raw) as Partial<StoreFile>;
-			const providers: Record<string, PoolState> = {};
-			if (parsed.providers && typeof parsed.providers === "object") {
-				for (const [id, pool] of Object.entries(parsed.providers)) {
-					if (!pool || !Array.isArray(pool.keys)) continue;
-					providers[id] = dedupePool({
-						keys: pool.keys,
-						activeIndex: typeof pool.activeIndex === "number" ? pool.activeIndex : 0,
-					});
-				}
-			}
-			return { version: 1, providers };
-		} catch {
-			// try the next candidate (new path, then legacy names)
+			raw = readFileSync(path, "utf8");
+		} catch (error) {
+			if (isEnoent(error)) continue; // try the next candidate (new path, then legacy)
+			throw error; // e.g. EACCES: never pretend the store is empty and overwrite it
 		}
+		let parsed: Partial<StoreFile>;
+		try {
+			parsed = JSON.parse(raw) as Partial<StoreFile>;
+		} catch {
+			throw new StoreCorruptError(path);
+		}
+		const providers: Record<string, PoolState> = {};
+		if (parsed.providers && typeof parsed.providers === "object") {
+			for (const [id, pool] of Object.entries(parsed.providers)) {
+				if (!pool || !Array.isArray(pool.keys)) continue;
+				providers[id] = dedupePool({
+					keys: pool.keys,
+					activeIndex: typeof pool.activeIndex === "number" ? pool.activeIndex : 0,
+				});
+			}
+		}
+		return { version: 1, providers };
 	}
 	return { version: 1, providers: {} };
 }
@@ -134,12 +153,16 @@ function loadStore(): StoreFile {
 function saveStore(store: StoreFile): void {
 	const path = storePath();
 	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, `${JSON.stringify(store, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+	// Write a sibling temp file and rename it into place: a crash mid-write then
+	// leaves the previous store intact instead of a truncated/corrupt file.
+	const tmp = `${path}.tmp-${process.pid}`;
+	writeFileSync(tmp, `${JSON.stringify(store, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
 	try {
-		chmodSync(path, 0o600);
+		chmodSync(tmp, 0o600);
 	} catch {
 		// best effort (e.g. Windows)
 	}
+	renameSync(tmp, path);
 	// Drop older store names now that the data has been written here.
 	for (const legacy of legacyStorePaths()) {
 		try {
@@ -150,13 +173,19 @@ function saveStore(store: StoreFile): void {
 	}
 }
 
+/** Reads the pool, degrading to "no pool" when the store is corrupt/unreadable. */
 function getPool(providerId: string): PoolState | undefined {
-	return loadStore().providers[providerId];
+	try {
+		return loadStore().providers[providerId];
+	} catch {
+		return undefined;
+	}
 }
 
 function mutatePool(providerId: string, fn: (pool: PoolState) => void): PoolState {
-	const store = loadStore();
+	const store = loadStore(); // throws (and writes nothing) on a corrupt store
 	const pool = store.providers[providerId] ?? emptyPool();
+	const before = JSON.stringify(store.providers);
 	fn(pool);
 	if (pool.keys.length === 0) {
 		delete store.providers[providerId];
@@ -164,7 +193,9 @@ function mutatePool(providerId: string, fn: (pool: PoolState) => void): PoolStat
 		if (pool.activeIndex < 0 || pool.activeIndex >= pool.keys.length) pool.activeIndex = 0;
 		store.providers[providerId] = pool;
 	}
-	saveStore(store);
+	// Only touch the disk when something actually changed (a rate-limit failure on
+	// a single-key pool, for example, is a no-op).
+	if (JSON.stringify(store.providers) !== before) saveStore(store);
 	return pool;
 }
 
@@ -242,10 +273,10 @@ type FailureKind = "balance" | "auth" | "rate";
 function classifyFailure(message: AssistantMessage | undefined): FailureKind | undefined {
 	const raw = message?.errorMessage ?? "";
 	if (!raw) return undefined;
-	if (/insufficient.?balance|insufficient_quota|quota|out of budget|billing|not enough balance|余额不足|欠费/i.test(raw)) {
+	if (/insufficient.?balance|insufficient.?quota|quota.?exceeded|exceeded.{0,20}quota|out of budget|not enough balance|billing.{0,20}(limit|exceed|required|issue)|余额不足|欠费/i.test(raw)) {
 		return "balance";
 	}
-	if (/invalid.?api.?key|authentication fail|unauthorized|invalid token|\b401\b|api key not valid/i.test(raw)) {
+	if (/invalid.?api.?key|authentication fail|unauthorized|invalid token|api key not valid|\b401\b/i.test(raw)) {
 		return "auth";
 	}
 	if (/rate.?limit|too many requests|\b429\b|overloaded|server busy|请求过多|服务繁忙/i.test(raw)) {
@@ -256,23 +287,28 @@ function classifyFailure(message: AssistantMessage | undefined): FailureKind | u
 
 function noteFailure(providerId: string, entry: KeyEntry, kind: FailureKind, _detail: string): void {
 	if (kind === "rate") parkRateLimited(providerId, entry);
-	mutatePool(providerId, (pool) => {
-		const index = pool.keys.findIndex((candidate) => candidate.id === entry.id);
-		if (kind !== "rate" && index >= 0) {
-			// Only disable when another enabled key remains. Disabling the last
-			// usable key would force a manual re-enable after a top-up; keeping it
-			// lets it recover on its own.
-			const hasOtherEnabled = pool.keys.some((candidate) => candidate.id !== entry.id && !candidate.disabled);
-			if (hasOtherEnabled) {
-				const target = pool.keys[index];
-				target.disabled = true;
-				target.disabledReason = kind === "balance" ? "insufficient balance" : "invalid key";
-				target.disabledAt = Date.now();
+	try {
+		mutatePool(providerId, (pool) => {
+			const index = pool.keys.findIndex((candidate) => candidate.id === entry.id);
+			if (kind !== "rate" && index >= 0) {
+				// Only disable when another enabled key remains. Disabling the last
+				// usable key would force a manual re-enable after a top-up; keeping it
+				// lets it recover on its own.
+				const hasOtherEnabled = pool.keys.some((candidate) => candidate.id !== entry.id && !candidate.disabled);
+				if (hasOtherEnabled) {
+					const target = pool.keys[index];
+					target.disabled = true;
+					target.disabledReason = kind === "balance" ? "insufficient balance" : "invalid key";
+					target.disabledAt = Date.now();
+				}
 			}
-		}
-		// Advance the active pointer so future sessions start on a fresh key.
-		if (index >= 0 && pool.keys.length > 0) pool.activeIndex = (index + 1) % pool.keys.length;
-	});
+			// Advance the active pointer so future sessions start on a fresh key.
+			if (index >= 0 && pool.keys.length > 0) pool.activeIndex = (index + 1) % pool.keys.length;
+		});
+	} catch {
+		// A damaged or unreadable store must not turn a provider error into a crash;
+		// loadStore left the file untouched and reads fall back to the provider auth.
+	}
 }
 
 // =============================================================================
