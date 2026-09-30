@@ -23,7 +23,7 @@ More providers will be added over time. The storage format and the code are alre
 ## Install
 
 ```bash
-pi install npm:pi-switch
+pi install npm:@snorfyang/pi-switch
 ```
 
 While developing from a checkout:

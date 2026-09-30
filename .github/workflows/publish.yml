@@ -41,4 +41,4 @@ jobs:
           fi
 
       - name: Publish to npm
-        run: npm publish
+        run: npm publish --access public

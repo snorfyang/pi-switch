@@ -29,11 +29,13 @@ CI runs both jobs on every push and pull request (`.github/workflows/ci.yml`).
 
 The first version is published by hand; later versions publish from CI using npm **trusted publishing** (OIDC). No token is stored anywhere.
 
+The npm package is scoped: **`@snorfyang/pi-switch`** (the unscoped name `pi-switch` is rejected as too similar to `piswitch`).
+
 ### First publish (creates the package on npm)
 
 ```bash
 npm login
-npm publish
+npm publish --access public --otp=<code>
 ```
 
 ### Configure trusted publishing (once)
@@ -51,7 +53,7 @@ npm version patch        # bumps package.json, commits, tags vX.Y.Z
 git push --follow-tags   # triggers .github/workflows/publish.yml
 ```
 
-The workflow re-runs the tests, checks the tag matches `package.json`, and runs `npm publish`. Trusted publishing generates provenance automatically and requires only `id-token: write`.
+The workflow re-runs the tests, checks the tag matches `package.json`, and runs `npm publish --access public`. Trusted publishing generates provenance automatically and requires only `id-token: write`.
 
 Pi discovers the published package through the `pi-package` keyword in `package.json`.
 
