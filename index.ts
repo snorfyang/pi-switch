@@ -15,7 +15,7 @@
  *    failure parks it for a cooldown window.
  *
  * Keys live in `<agent-dir>/deepseek-keypool.json` (mode 0600).
- * Manage them with `/deepseek-keys`.
+ * Manage them through the normal login flow: `/login deepseek`.
  */
 
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -25,11 +25,13 @@ import { dirname, join } from "node:path";
 import type {
 	Api,
 	ApiKeyAuth,
+	ApiKeyCredential,
 	AssistantMessage,
 	AssistantMessageEvent,
 	AssistantMessageEventStream,
 	Model,
 	Provider,
+	ProviderAuthInteraction,
 	SimpleStreamOptions,
 	StreamOptions,
 	TranscriptContext,
@@ -298,7 +300,9 @@ function poolAuth(base: Provider): ApiKeyAuth {
 	const baseAuth = base.auth.apiKey;
 	return {
 		name: baseAuth?.name ?? `${base.name} API key`,
-		login: baseAuth?.login,
+		// `/login <provider>` lands here: the whole key-pool management menu is the
+		// provider's api-key login flow, so there is no separate slash command.
+		login: (interaction) => runKeyPoolLogin(interaction),
 		check: async (input) => {
 			const pool = getPool(base.id);
 			if (pool && pool.keys.length > 0) return { type: "api_key", source: "key pool" };
@@ -352,7 +356,7 @@ function ensureRegistered(pi: ExtensionAPI, ctx: ExtensionContext): string | und
 }
 
 // =============================================================================
-// Key management UI
+// Key management, exposed as the provider's api-key /login flow
 // =============================================================================
 
 function maskKey(key: string): string {
@@ -360,76 +364,114 @@ function maskKey(key: string): string {
 	return `${key.slice(0, 6)}...${key.slice(-4)}`;
 }
 
-async function manageKeys(ctx: ExtensionContext): Promise<void> {
+function keyStatus(providerId: string, entry: KeyEntry): string {
+	if (entry.disabled) return `disabled: ${entry.disabledReason ?? "unknown"}`;
+	if (isCoolingDown(providerId, entry)) return "cooling down";
+	return "available";
+}
+
+async function addKeyInteractive(providerId: string, interaction: ProviderAuthInteraction): Promise<void> {
+	const key = (await interaction.prompt({ type: "secret", message: "粘贴 DeepSeek API key（sk-...）" })).trim();
+	if (!key) return;
+	const label = (await interaction.prompt({ type: "text", message: "给这个 key 起个标签（可留空）" })).trim();
+	addKey(providerId, key, label || undefined);
+	interaction.notify({ type: "info", message: `已添加 ${maskKey(key)}` });
+}
+
+/**
+ * The provider's api-key login flow: add keys, switch the active one, remove
+ * keys, or re-enable disabled keys. Returns the active credential so Pi can
+ * finish its normal login bookkeeping.
+ */
+async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<ApiKeyCredential> {
+	const providerId = PROVIDER_ID;
+
+	// First run: get at least one key before showing the menu.
+	if (!getPool(providerId)?.keys.length) {
+		await addKeyInteractive(providerId, interaction);
+	}
+
 	for (;;) {
-		const pool = getPool(PROVIDER_ID) ?? emptyPool();
-		const rows = pool.keys.map((entry, index) => {
+		const pool = getPool(providerId) ?? emptyPool();
+		const options = pool.keys.map((entry, index) => {
 			const marker = index === pool.activeIndex ? "▶" : " ";
-			const status = entry.disabled
-				? `  [disabled: ${entry.disabledReason ?? "unknown"}]`
-				: isCoolingDown(PROVIDER_ID, entry)
-					? "  [cooling down]"
-					: "";
-			const label = entry.label ? `  (${entry.label})` : "";
-			return `${marker} ${maskKey(entry.key)}${label}${status}`;
+			return {
+				id: `use:${index}`,
+				label: `${marker} #${index + 1} ${maskKey(entry.key)}`,
+				description: [entry.label, keyStatus(providerId, entry)].filter(Boolean).join(" · "),
+			};
+		});
+		options.push({ id: "add", label: "➕ 添加密钥", description: "再存一个 DeepSeek API key" });
+		if (pool.keys.length > 0) {
+			options.push({ id: "remove", label: "🗑 删除密钥" });
+			options.push({ id: "reset", label: "↻ 重新启用已禁用", description: "清除 disabled 与冷却状态" });
+		}
+		options.push({ id: "done", label: "✔ 完成" });
+
+		const choice = await interaction.prompt({
+			type: "select",
+			message: `DeepSeek 密钥管理（已存 ${pool.keys.length} 个）`,
+			options,
 		});
 
-		const ADD = "➕ Add key";
-		const REMOVE = "🗑 Remove key";
-		const RESET = "↻ Re-enable disabled keys";
-		const DONE = "✔ Done";
-		const options = [...rows, ADD, ...(pool.keys.length > 0 ? [REMOVE, RESET] : []), DONE];
+		if (choice === "done") {
+			const preferred = pool.keys.length > 0 ? preferredKey(providerId, pool) : undefined;
+			if (!preferred) {
+				await addKeyInteractive(providerId, interaction);
+				continue;
+			}
+			interaction.notify({ type: "info", message: `已保存，当前使用 ${maskKey(preferred.key)}` });
+			return { type: "api_key", key: preferred.key };
+		}
 
-		const title =
-			pool.keys.length > 0
-				? `DeepSeek keys — ${pool.keys.length} stored, active ${maskKey(pool.keys[pool.activeIndex]?.key ?? "")}`
-				: "DeepSeek keys — no keys yet";
-		const choice = await ctx.ui.select(title, options);
-		if (!choice || choice === DONE) return;
-
-		if (choice === ADD) {
-			const key = (await ctx.ui.input("Paste DeepSeek API key (sk-...)"))?.trim();
-			if (!key) continue;
-			const label = (await ctx.ui.input("Label (optional)", `key ${pool.keys.length + 1}`))?.trim();
-			addKey(PROVIDER_ID, key, label || undefined);
-			ctx.ui.notify(`Added ${maskKey(key)}`, "info");
+		if (choice === "add") {
+			await addKeyInteractive(providerId, interaction);
 			continue;
 		}
 
-		if (choice === REMOVE) {
-			const removeOptions = pool.keys.map((entry, index) => `${index + 1}. ${maskKey(entry.key)}`);
-			const target = await ctx.ui.select("Remove which key?", removeOptions);
-			const index = target ? removeOptions.indexOf(target) : -1;
-			if (index < 0) continue;
-			const entry = pool.keys[index];
-			const confirmed = await ctx.ui.confirm("Remove key?", `${maskKey(entry.key)} will be deleted.`);
-			if (!confirmed) continue;
-			mutatePool(PROVIDER_ID, (current) => {
-				current.keys = current.keys.filter((candidate) => candidate.id !== entry.id);
-			});
-			ctx.ui.notify("Key removed", "info");
+		if (choice === "remove") {
+			const removeOptions = pool.keys.map((entry, index) => ({
+				id: `rm:${index}`,
+				label: `#${index + 1} ${maskKey(entry.key)}`,
+				description: [entry.label, keyStatus(providerId, entry)].filter(Boolean).join(" · "),
+			}));
+			removeOptions.push({ id: "cancel", label: "取消" });
+			const target = await interaction.prompt({ type: "select", message: "删除哪个 key？", options: removeOptions });
+			if (target?.startsWith("rm:")) {
+				const index = Number(target.slice(3));
+				const entry = Number.isInteger(index) ? pool.keys[index] : undefined;
+				if (entry) {
+					mutatePool(providerId, (current) => {
+						current.keys = current.keys.filter((candidate) => candidate.id !== entry.id);
+					});
+					interaction.notify({ type: "info", message: `已删除 ${maskKey(entry.key)}` });
+				}
+			}
 			continue;
 		}
 
-		if (choice === RESET) {
-			mutatePool(PROVIDER_ID, (current) => {
+		if (choice === "reset") {
+			mutatePool(providerId, (current) => {
 				for (const entry of current.keys) {
 					entry.disabled = false;
 					entry.disabledReason = undefined;
 					entry.disabledAt = undefined;
 				}
 			});
-			cooldowns.delete(PROVIDER_ID);
-			ctx.ui.notify("All keys re-enabled", "info");
+			cooldowns.delete(providerId);
+			interaction.notify({ type: "info", message: "已重新启用全部 key" });
 			continue;
 		}
 
-		const rowIndex = rows.indexOf(choice);
-		if (rowIndex >= 0) {
-			mutatePool(PROVIDER_ID, (current) => {
-				current.activeIndex = rowIndex;
-			});
-			ctx.ui.notify(`Active key: ${maskKey(pool.keys[rowIndex].key)}`, "info");
+		if (choice?.startsWith("use:")) {
+			const index = Number(choice.slice(4));
+			const entry = Number.isInteger(index) ? pool.keys[index] : undefined;
+			if (entry) {
+				mutatePool(providerId, (current) => {
+					current.activeIndex = index;
+				});
+				interaction.notify({ type: "info", message: `当前 key：${maskKey(entry.key)}` });
+			}
 		}
 	}
 }
@@ -441,19 +483,9 @@ async function manageKeys(ctx: ExtensionContext): Promise<void> {
 export default function piDeepSeekKeyPool(pi: ExtensionAPI): void {
 	// The runtime is only reachable from a session, so wrap the provider on start.
 	// This also re-asserts the wrapper after a session switch rebuilds the runtime.
+	// The key-pool UI lives in the provider's api-key login flow: /login deepseek.
 	pi.on("session_start", (_event, ctx) => {
 		const error = ensureRegistered(pi, ctx);
 		if (error) ctx.ui.notify(`deepseek-keypool: ${error}`, "error");
-	});
-
-	pi.registerCommand("deepseek-keys", {
-		description: "Manage DeepSeek API keys and auto-rotation",
-		handler: async (_args, ctx) => {
-			if (!ctx.hasUI) {
-				ctx.ui.notify("This command needs an interactive session.", "warning");
-				return;
-			}
-			await manageKeys(ctx);
-		},
 	});
 }

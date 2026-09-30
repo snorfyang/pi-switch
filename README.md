@@ -6,7 +6,7 @@
 
 ## 功能
 
-- `/deepseek-keys` 交互式管理 key 池：添加、删除、设为当前、重新启用。
+- **没有单独的斜杠命令**。密钥管理集成在 Pi 原生的 `/login` 里：运行 `/login deepseek`，走 API key 登录，就会进入密钥池菜单。
 - 请求发出前用当前 key；如果**还没产生任何内容**就失败，自动换下一个 key 重发同一个请求，用户侧无感。
 - 失败分类：
   - **余额不足**（HTTP 402 / `Insufficient Balance`）或 **key 无效**（401）→ 该 key 永久禁用（写入磁盘），并前移当前指针。
@@ -16,7 +16,7 @@
 
 ## 安装
 
-方式一（推荐，开发用）：把仓库目录软链或复制到 Pi 的用户扩展目录。
+方式一（推荐，开发用）：把仓库目录软链到 Pi 的用户扩展目录。
 
 ```bash
 ln -s "$(pwd)" ~/.pi/agent/extensions/deepseek-keypool
@@ -38,23 +38,41 @@ pi -e "$(pwd)/index.ts"
 
 ## 使用
 
-1. 启动 Pi，执行：
+和 Pi 原生的登录完全一样：
 
-   ```
-   /deepseek-keys
-   ```
+1. 启动 Pi，执行 `/login`（或直接 `/login deepseek`）。
+2. 选 `DeepSeek`。
+3. 因为 DeepSeek 只有 API key 登录方式，会直接进入密钥池菜单。
 
-2. 选 `➕ Add key`，粘贴 `sk-...`，可选填个标签。
-3. 想切当前 key，直接在列表里选中那一行。
-4. 之后用 `/model` 选任意 `deepseek/*` 模型即可，轮换自动发生。
-
-列表里的标记：
+第一次运行时池是空的，会先让你粘贴一个 key：
 
 ```
-▶ sk-abc123...wxyz  (标签)          ← 当前 key
-  sk-def456...uvwx  [disabled: insufficient balance]
-  sk-ghi789...stuv  [cooling down]
+登录到 DeepSeek
+> 粘贴 DeepSeek API key（sk-...）
+> 给这个 key 起个标签（可留空）
 ```
+
+之后进入菜单：
+
+```
+DeepSeek 密钥管理（已存 2 个）
+▶ #1 sk-abc123...wxyz     主号 · available
+  #2 sk-def456...uvwx     备用 · available
+➕ 添加密钥
+🗑 删除密钥
+↻ 重新启用已禁用
+✔ 完成
+```
+
+- `▶` = 当前 key；选中某个 key 行就把它设为当前。
+- `➕ 添加密钥` 再存一个。
+- `🗑 删除密钥` 进入子菜单选择要删的 key。
+- `↻ 重新启用已禁用` 清掉所有 `disabled` 和冷却。
+- `✔ 完成` 结束登录流程（必须至少有一个 key）。
+
+选完 `✔ 完成` 后，Pi 会照常做登录收尾，并把当前 key 存进 `auth.json`。但我们的解析只认 key 池，所以那条 `auth.json` 记录只是顺带存的，不影响轮换。
+
+之后用 `/model` 选任意 `deepseek/*` 模型即可，轮换自动发生。
 
 ## 配置
 
@@ -79,13 +97,14 @@ pi -e "$(pwd)/index.ts"
 
 ## 工作原理
 
-1. 在 `session_start` 时取出内置 `deepseek` provider，用一个薄包装替换它：
+1. 运行 `/login deepseek` 时，Pi 调用 provider 的 `auth.apiKey.login(interaction)`。我们在包装 provider 时替换了这个 `login`，把它变成密钥池的管理流程（`interaction.prompt` 支持 select / secret / text，且可以循环）。
+2. 在 `session_start` 时取出内置 `deepseek` provider，用一个薄包装替换它：
    - `getModels` / 模型元数据 / baseUrl 等全部沿用原来的；
-   - 只改 `auth`（从 key 池取 key）和 `stream` / `streamSimple`（加重试）。
-2. 包装层缓冲响应的 `start` 事件：
+   - 只改 `auth`（从 key 池取 key，`login` 走上面的流程）和 `stream` / `streamSimple`（加重试）。
+3. 包装层缓冲响应的 `start` 事件：
    - 一旦出现正文（`text_delta`、`toolcall_*` 等）就锁定这次尝试，后续错误原样透传，**不会**重试（避免正文重复）。
    - 如果 `start` 之后直接是 `error`，说明请求在产生内容前就被拒了——这正是额度/限流的形态，于是标记失败、换下一个 key、重发。
-3. 所有 key 都用完仍未成功时，把最后一次错误原样交给 Pi。
+4. 所有 key 都用完仍未成功时，把最后一次错误原样交给 Pi。
 
 因为重试发生在 provider 层、且发生在任何内容产生之前，所以不需要 Pi 的 agent 级重试，也不受 `retry.provider.maxRetries` 限制。
 
@@ -116,4 +135,5 @@ pi -e "$(pwd)/index.ts"
 
 - 只对 **请求发出时用 header/API key 鉴权**的 provider 有效；依赖 OAuth 的家族需要额外适配。
 - 如果错误发生在正文已经输出之后，不会重试（宁可让用户看到半截错误，也不重复正文）。
-- `/deepseek-keys` 用普通输入框粘贴 key，不会在终端里隐藏；介意的话直接编辑 JSON 文件。
+- `/login` 的输入框是明文（Pi 原生行为），不会在终端里隐藏 key。
+- 登录收尾时 Pi 仍会把当前 key 写入 `auth.json`；如果之后把池清空并 `/logout deepseek`，这条记录会被删掉，池文件不受影响。
