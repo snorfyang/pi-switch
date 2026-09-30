@@ -7,7 +7,7 @@
 ## 功能
 
 - **没有单独的斜杠命令**。密钥管理集成在 Pi 原生的 `/login` 里：`/login deepseek` → API key 登录 → 密钥池菜单（界面英文）。
-- 如果池是空的但你已经有一个 key（`auth.json` / `models.json` / `DEEPSEEK_API_KEY`），**会自动导入**，不会再让你重新 paste。
+- 如果池是空的但 Pi 已经存过一个 key（`auth.json`），**会自动导入**，不会再让你重新 paste。
 - 请求发出前用当前 key；如果**还没产生任何内容**就失败，自动换下一个 key 重发同一个请求，用户侧无感。
 - 失败自动分类：余额不足 / key 无效 → 永久禁用该 key；限流 → 冷却 30 秒。详见[运行时的判断与重试规则](#运行时的判断与重试规则)。
 - 池里没有 key 时，行为跟内置 DeepSeek provider 完全一致（回退到 `auth.json` / `DEEPSEEK_API_KEY`）。
@@ -43,13 +43,11 @@ pi -e "$(pwd)/index.ts"
 2. 选 `DeepSeek`。
 3. DeepSeek 只有 API key 一种登录方式，会直接进入密钥池菜单。
 
-如果池里还没有 key，会先尝试自动导入你已有的：
+如果池里还没有 key，会先尝试导入 **Pi 自己存的凭据**（`auth.json` 里 deepseek 的 `api_key`，标为 `imported`）。
 
-- `auth.json` 里存的 DeepSeek key（标为 `imported`）
-- `models.json` 里给 deepseek 配的 `apiKey`
-- 环境变量 `DEEPSEEK_API_KEY`（标为 `imported (DEEPSEEK_API_KEY)`）
+导入成功会提示 `Imported 1 stored DeepSeek key(s)` 并直接进菜单。只有确实没有存过 key 时，才会让你粘贴：
 
-导入成功会提示 `Imported N existing DeepSeek key(s)` 并直接进菜单。只有确实找不到任何 key 时，才会让你粘贴：
+> 环境变量（`DEEPSEEK_API_KEY`）和 `models.json` 里的 `apiKey` **不会**被导入。它们仍然照常生效（空池时 provider 会回退到 Pi 的原生解析），只是不会出现在池里。
 
 ```
 Login to DeepSeek

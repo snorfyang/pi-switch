@@ -324,7 +324,6 @@ function poolAuth(base: Provider): ApiKeyAuth {
 // =============================================================================
 
 let wrappedProvider: Provider | undefined;
-let registry: ExtensionContext["modelRegistry"] | undefined;
 
 function buildWrapper(base: Provider): Provider {
 	return {
@@ -348,7 +347,6 @@ function ensureRegistered(pi: ExtensionAPI, ctx: ExtensionContext): string | und
 		const base = ctx.modelRegistry.getProvider(PROVIDER_ID);
 		if (!base) return `provider "${PROVIDER_ID}" is not available`;
 
-		registry = ctx.modelRegistry;
 		wrappedProvider = buildWrapper(base);
 		pi.registerProvider(wrappedProvider);
 		return undefined;
@@ -389,33 +387,36 @@ async function addKeyInteractive(providerId: string, interaction: ProviderAuthIn
 	interaction.notify({ type: "info", message: `Added ${maskKey(key)}` });
 }
 
-const ENV_KEY_NAMES: Record<string, string> = { deepseek: "DEEPSEEK_API_KEY" };
-
 /**
- * Seed the pool from keys the provider already has configured (auth.json,
- * models.json apiKey, or the provider's environment variable) so an existing
- * single-key setup shows up in the pool instead of forcing a re-paste.
+ * The api-key credential Pi itself has stored for this provider, read straight
+ * from `auth.json`. Environment variables and models.json config are left
+ * alone: those keep working through the provider's normal auth fallback, but
+ * they are not imported into the pool.
  */
-async function importExistingKeys(providerId: string): Promise<number> {
-	const found = new Map<string, string>();
+function readStoredKey(providerId: string): string | undefined {
 	try {
-		const resolved = await registry?.getApiKeyForProvider(providerId);
-		if (resolved?.trim()) found.set(resolved.trim(), "imported");
+		const parsed = JSON.parse(readFileSync(join(agentDir(), "auth.json"), "utf8")) as Record<
+			string,
+			{ type?: string; key?: string } | undefined
+		>;
+		const entry = parsed[providerId];
+		if (entry?.type === "api_key" && typeof entry.key === "string" && entry.key.trim()) {
+			return entry.key.trim();
+		}
 	} catch {
-		// ignore resolution failures; fall through to env / manual entry
+		// no auth.json / unreadable / no entry
 	}
-	const envName = ENV_KEY_NAMES[providerId];
-	const envKey = envName ? process.env[envName]?.trim() : undefined;
-	if (envKey && !found.has(envKey)) found.set(envKey, `imported (${envName})`);
+	return undefined;
+}
 
+/** Seed an empty pool from Pi's stored credential, if there is one. */
+function importExistingKeys(providerId: string): number {
+	const stored = readStoredKey(providerId);
+	if (!stored) return 0;
 	const existing = new Set((getPool(providerId)?.keys ?? []).map((entry) => entry.key));
-	let imported = 0;
-	for (const [key, label] of found) {
-		if (existing.has(key)) continue;
-		addKey(providerId, key, label);
-		imported++;
-	}
-	return imported;
+	if (existing.has(stored)) return 0;
+	addKey(providerId, stored, "imported");
+	return 1;
 }
 
 /**
@@ -522,11 +523,11 @@ async function manageOneKey(providerId: string, interaction: ProviderAuthInterac
 async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<ApiKeyCredential> {
 	const providerId = PROVIDER_ID;
 
-	// First run: import keys the provider already has, otherwise ask for one.
+	// First run: import the stored credential, otherwise ask for one.
 	if (!getPool(providerId)?.keys.length) {
-		const imported = await importExistingKeys(providerId);
+		const imported = importExistingKeys(providerId);
 		if (imported > 0) {
-			interaction.notify({ type: "info", message: `Imported ${imported} existing DeepSeek key(s)` });
+			interaction.notify({ type: "info", message: `Imported ${imported} stored DeepSeek key(s)` });
 		} else {
 			await addKeyInteractive(providerId, interaction);
 		}
