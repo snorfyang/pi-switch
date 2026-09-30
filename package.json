@@ -32,6 +32,12 @@
   },
   "scripts": {
     "load": "pi --no-extensions -e ./index.ts --list-models",
-    "test": "./test/run-e2e.sh"
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "test:e2e": "./test/run-e2e.sh"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^3.2.7",
+    "vitest": "^3.2.7"
   }
 }

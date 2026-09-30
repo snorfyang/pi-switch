@@ -159,10 +159,10 @@ function mutatePool(providerId: string, fn: (pool: PoolState) => void): PoolStat
 	fn(pool);
 	if (pool.keys.length === 0) {
 		delete store.providers[providerId];
-	} else if (pool.activeIndex < 0 || pool.activeIndex >= pool.keys.length) {
-		pool.activeIndex = 0;
+	} else {
+		if (pool.activeIndex < 0 || pool.activeIndex >= pool.keys.length) pool.activeIndex = 0;
+		store.providers[providerId] = pool;
 	}
-	store.providers[providerId] = pool;
 	saveStore(store);
 	return pool;
 }
@@ -229,10 +229,11 @@ function orderedCandidates(providerId: string): KeyEntry[] {
 	return ordered;
 }
 
-/** Best key for auth resolution: a usable one, else any so the provider counts as configured. */
+/** Best key for auth resolution: the active one if usable, else any usable, else the first. */
 function preferredKey(providerId: string, pool: PoolState): KeyEntry | undefined {
-	const usable = pool.keys.find((entry) => !entry.disabled && !isCoolingDown(providerId, entry));
-	return usable ?? pool.keys[0];
+	const active = pool.keys[pool.activeIndex];
+	if (active && isUsable(providerId, active)) return active;
+	return pool.keys.find((entry) => isUsable(providerId, entry)) ?? pool.keys[0];
 }
 
 type FailureKind = "balance" | "auth" | "rate";
@@ -647,3 +648,40 @@ export default function piSwitch(pi: ExtensionAPI): void {
 		if (error) ctx.ui.notify(`pi-switch: ${error}`, "error");
 	});
 }
+
+/**
+ * Internal exports for unit tests. Not part of the plugin's public API.
+ */
+export const __internals = {
+	agentDir,
+	storePath,
+	legacyStorePaths,
+	emptyPool,
+	dedupePool,
+	loadStore,
+	saveStore,
+	getPool,
+	mutatePool,
+	makeKeyId,
+	hasKeyValue,
+	addKey,
+	isCoolingDown,
+	parkRateLimited,
+	isUsable,
+	orderedCandidates,
+	preferredKey,
+	classifyFailure,
+	noteFailure,
+	attemptWithRotation,
+	wrapStreams,
+	poolAuth,
+	buildWrapper,
+	ensureRegistered,
+	maskKey,
+	formatKeyRow,
+	addKeyInteractive,
+	readStoredKey,
+	importExistingKeys,
+	manageOneKey,
+	runKeyPoolLogin,
+};

@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Test artifacts
+coverage/
+
 # Local secrets / runtime state (the real store lives in the pi agent dir)
 pi-switch.json
 deepseek-keypool.json
