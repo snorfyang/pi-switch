@@ -1,0 +1,15 @@
+{
+  "name": "pi-deepseek-keypool",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Pi extension: multiple DeepSeek API keys with automatic rotation on quota/rate-limit failures.",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "load": "pi --no-extensions -e ./index.ts --list-models deepseek"
+  }
+}

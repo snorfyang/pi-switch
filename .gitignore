@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+
+# Local secrets / runtime state (the real store lives in the pi agent dir)
+deepseek-keypool.json
+*.key
+.env
+.env.*
+
+# Test / editor noise
+*.log
+.DS_Store

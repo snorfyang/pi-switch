@@ -1,0 +1,119 @@
+# pi-deepseek-keypool
+
+给 Pi 的 DeepSeek 多加几个 API key，某个 key 没额度或限流时自动切到下一个。
+
+这是第一个「家族」版本，目前只接管 `deepseek` provider；结构留好了扩展位，之后可以照同样方式加到别的家族。
+
+## 功能
+
+- `/deepseek-keys` 交互式管理 key 池：添加、删除、设为当前、重新启用。
+- 请求发出前用当前 key；如果**还没产生任何内容**就失败，自动换下一个 key 重发同一个请求，用户侧无感。
+- 失败分类：
+  - **余额不足**（HTTP 402 / `Insufficient Balance`）或 **key 无效**（401）→ 该 key 永久禁用（写入磁盘），并前移当前指针。
+  - **限流**（429 / `Rate Limit Reached`）→ 该 key 冷却 30 秒，不写盘、不禁用。
+- 池里没有 key 时，行为跟内置 DeepSeek provider 完全一致（回退到 `auth.json` / `DEEPSEEK_API_KEY`）。
+- key 存在 `<agent-dir>/deepseek-keypool.json`，权限 `0600`。
+
+## 安装
+
+方式一（推荐，开发用）：把仓库目录软链或复制到 Pi 的用户扩展目录。
+
+```bash
+ln -s "$(pwd)" ~/.pi/agent/extensions/deepseek-keypool
+```
+
+方式二：作为本地 package 安装。
+
+```bash
+pi install "$(pwd)"
+```
+
+方式三：单次加载，不写配置。
+
+```bash
+pi -e "$(pwd)/index.ts"
+```
+
+改完代码后在会话里跑 `/reload` 即可生效。
+
+## 使用
+
+1. 启动 Pi，执行：
+
+   ```
+   /deepseek-keys
+   ```
+
+2. 选 `➕ Add key`，粘贴 `sk-...`，可选填个标签。
+3. 想切当前 key，直接在列表里选中那一行。
+4. 之后用 `/model` 选任意 `deepseek/*` 模型即可，轮换自动发生。
+
+列表里的标记：
+
+```
+▶ sk-abc123...wxyz  (标签)          ← 当前 key
+  sk-def456...uvwx  [disabled: insufficient balance]
+  sk-ghi789...stuv  [cooling down]
+```
+
+## 配置
+
+文件：`~/.pi/agent/deepseek-keypool.json`（受 `PI_CODING_AGENT_DIR` 影响）
+
+```json
+{
+  "version": 1,
+  "providers": {
+    "deepseek": {
+      "keys": [
+        { "id": "a1b2c3", "key": "sk-...", "label": "主号" },
+        { "id": "d4e5f6", "key": "sk-...", "label": "备用" }
+      ],
+      "activeIndex": 0
+    }
+  }
+}
+```
+
+`disabled` / `disabledReason` / `disabledAt` 由扩展在失败时写入，也可以手动删掉来恢复。
+
+## 工作原理
+
+1. 在 `session_start` 时取出内置 `deepseek` provider，用一个薄包装替换它：
+   - `getModels` / 模型元数据 / baseUrl 等全部沿用原来的；
+   - 只改 `auth`（从 key 池取 key）和 `stream` / `streamSimple`（加重试）。
+2. 包装层缓冲响应的 `start` 事件：
+   - 一旦出现正文（`text_delta`、`toolcall_*` 等）就锁定这次尝试，后续错误原样透传，**不会**重试（避免正文重复）。
+   - 如果 `start` 之后直接是 `error`，说明请求在产生内容前就被拒了——这正是额度/限流的形态，于是标记失败、换下一个 key、重发。
+3. 所有 key 都用完仍未成功时，把最后一次错误原样交给 Pi。
+
+因为重试发生在 provider 层、且发生在任何内容产生之前，所以不需要 Pi 的 agent 级重试，也不受 `retry.provider.maxRetries` 限制。
+
+## 测试
+
+仓库自带一个假 DeepSeek 服务，验证「坏 key → 自动换好 key」：
+
+```bash
+./test/run-e2e.sh
+```
+
+它会起一个本地 OpenAI 兼容服务，`sk-bad` 返回 402 `Insufficient Balance`，`sk-good` 返回正常流式回复；然后跑一次 `pi -p`，断言：
+
+- 请求日志里先出现 `sk-bad`，再出现 `sk-good`；
+- Pi 最终拿到 `sk-good` 的回复；
+- 存储文件里 `sk-bad` 被标记 `disabled`。
+
+## 扩展到其他家族
+
+主要动两个常量：
+
+- `PROVIDER_ID`：目前写死 `deepseek`；
+- `session_start` 里捕获并包装对应 provider。
+
+`deepseek-keypool.json` 的 `providers` 结构本身就是按 provider 分组的，稍加改造（把 `PROVIDER_ID` 换成可配置列表、给 `poolAuth` / `attemptWithRotation` 传入 providerId）即可扩展到 `anthropic`、`openai`、`openrouter` 等。
+
+## 已知限制
+
+- 只对 **请求发出时用 header/API key 鉴权**的 provider 有效；依赖 OAuth 的家族需要额外适配。
+- 如果错误发生在正文已经输出之后，不会重试（宁可让用户看到半截错误，也不重复正文）。
+- `/deepseek-keys` 用普通输入框粘贴 key，不会在终端里隐藏；介意的话直接编辑 JSON 文件。
