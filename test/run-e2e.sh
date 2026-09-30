@@ -37,7 +37,7 @@ server_pid=$!
 trap 'kill "$server_pid" 2>/dev/null || true' EXIT
 sleep 0.7
 
-out="$(PI_CODING_AGENT_DIR="$agent_dir" pi --no-extensions -e "$here/index.ts" \
+out="$(PI_CODING_AGENT_DIR="$agent_dir" pi --offline --no-extensions -e "$here/index.ts" \
   --no-session -p "Reply with exactly: hi" --model deepseek/deepseek-v4-pro 2>&1 | tail -3)"
 
 kill "$server_pid" 2>/dev/null || true

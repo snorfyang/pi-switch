@@ -204,6 +204,13 @@ npm run test:e2e
 - Pi 最终拿到 `sk-good` 的回复；
 - 存储文件里 `sk-bad` 被标记 `disabled`。
 
+### CI
+
+`.github/workflows/ci.yml` 在 push / PR 时跑两个 job：
+
+- **unit**：`npm ci && npm test`（含覆盖率阈值，低于 60% 直接失败）。
+- **e2e**：`npm ci` → 全局安装指定版本的 Pi CLI（`--offline` 跑，不依赖网络）→ `npm run test:e2e`。
+
 ## 扩展到其他 provider
 
 目前 `PROVIDERS = ["deepseek"]`，`session_start` 会对列表里每个 provider 各自包装一次。存储文件的 `providers` 结构本来就被 provider 分组，`poolAuth` / `attemptWithRotation` / `readStoredKey` / `importExistingKeys` / `runKeyPoolLogin` 全部以 providerId（和显示名）为参数，UI 文案也用 provider 自己的名字。
