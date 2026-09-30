@@ -83,16 +83,16 @@ describe("readStoredKey edge cases", () => {
 describe("rotation edge cases", () => {
 	const model = (provider: string) => ({ provider, id: "m" }) as never;
 
-	it("makes a single attempt when every key is disabled", async () => {
+	it("still attempts a request when every key was manually disabled", async () => {
 		api.addKey("p-alldisabled", "sk-a");
 		api.addKey("p-alldisabled", "sk-b");
 		api.mutatePool("p-alldisabled", (pool) => {
 			for (const entry of pool.keys) entry.disabled = true;
 		});
-		const calls: Array<string | undefined> = [];
+		const calls: string[] = [];
 		const base = {
-			streamSimple: (_m: unknown, _c: unknown, options: { apiKey?: string }) => {
-				calls.push(options.apiKey);
+			streamSimple: () => {
+				calls.push("called");
 				return streamOf([start, failure("Insufficient Balance")]);
 			},
 		};
@@ -101,6 +101,38 @@ describe("rotation edge cases", () => {
 		);
 		expect(calls).toHaveLength(1);
 		expect(events.at(-1)?.type).toBe("error");
+	});
+
+	it("still attempts while keys are only cooling down", async () => {
+		api.addKey("p-coolall", "sk-a");
+		api.noteFailure("p-coolall", api.getPool("p-coolall")!.keys[0], "rate", "Rate Limit Reached");
+		const calls: string[] = [];
+		const base = {
+			streamSimple: () => {
+				calls.push("called");
+				return streamOf([start, failure("Rate Limit Reached")]);
+			},
+		};
+		await collect(api.attemptWithRotation(base as never, "streamSimple", model("p-coolall"), {}, {}));
+		expect(calls).toHaveLength(1);
+	});
+
+	it("still attempts when a disabled key is mixed with a cooling one", async () => {
+		api.addKey("p-mixed", "sk-dead");
+		api.addKey("p-mixed", "sk-cool");
+		api.mutatePool("p-mixed", (pool) => {
+			pool.keys[0].disabled = true;
+		});
+		api.noteFailure("p-mixed", api.getPool("p-mixed")!.keys[1], "rate", "Rate Limit Reached");
+		const calls: string[] = [];
+		const base = {
+			streamSimple: () => {
+				calls.push("called");
+				return streamOf([start, failure("Rate Limit Reached")]);
+			},
+		};
+		await collect(api.attemptWithRotation(base as never, "streamSimple", model("p-mixed"), {}, {}));
+		expect(calls).toHaveLength(1);
 	});
 
 	it("does not retry or mark a key on an unclassified error", async () => {

@@ -92,11 +92,31 @@ describe("noteFailure", () => {
 		expect(api.orderedCandidates("p-nf-rate").map((candidate) => candidate.key)).toEqual(["sk-b"]);
 	});
 
-	it("labels invalid keys", () => {
+	it("labels invalid keys when another key remains", () => {
 		api.addKey("p-nf-auth", "sk-a");
+		api.addKey("p-nf-auth", "sk-b");
 		const entry = api.getPool("p-nf-auth")!.keys[0];
 		api.noteFailure("p-nf-auth", entry, "auth", "401");
 		expect(api.getPool("p-nf-auth")!.keys[0].disabledReason).toBe("invalid key");
+	});
+
+	it("never disables the last usable key", () => {
+		api.addKey("p-nf-last", "sk-only");
+		const entry = api.getPool("p-nf-last")!.keys[0];
+		api.noteFailure("p-nf-last", entry, "balance", "Insufficient Balance");
+		const pool = api.getPool("p-nf-last")!;
+		expect(pool.keys[0].disabled).toBeFalsy();
+		expect(pool.keys[0].disabledReason).toBeUndefined();
+	});
+
+	it("keeps the only enabled key when the others are already disabled", () => {
+		api.addKey("p-nf-remaining", "sk-a");
+		api.addKey("p-nf-remaining", "sk-b");
+		api.mutatePool("p-nf-remaining", (pool) => {
+			pool.keys[0].disabled = true;
+		});
+		api.noteFailure("p-nf-remaining", api.getPool("p-nf-remaining")!.keys[1], "balance", "Insufficient Balance");
+		expect(api.getPool("p-nf-remaining")!.keys[1].disabled).toBeFalsy();
 	});
 });
 

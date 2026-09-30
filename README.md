@@ -102,8 +102,8 @@ Failures are classified from the error message:
 
 | Check | Match examples | Result |
 |---|---|---|
-| 1 | `insufficient balance`, `insufficient_quota`, `quota`, `out of budget`, `billing`, `not enough balance`, `余额不足`, `欠费` | key is **disabled** (persisted), pointer moves on |
-| 2 | `invalid api key`, `authentication fail`, `unauthorized`, `invalid token`, `401` | key is **disabled** (persisted), pointer moves on |
+| 1 | `insufficient balance`, `insufficient_quota`, `quota`, `out of budget`, `billing`, `not enough balance`, `余额不足`, `欠费` | key is **disabled** (persisted) when another enabled key remains, pointer moves on |
+| 2 | `invalid api key`, `authentication fail`, `unauthorized`, `invalid token`, `401` | key is **disabled** (persisted) when another enabled key remains, pointer moves on |
 | 3 | `rate limit`, `429`, `too many requests`, `overloaded`, `server busy`, `请求过多`, `服务繁忙` | key is cooled down for 30 seconds, not disabled |
 | — | anything else (timeouts, 5xx, aborts, context overflow…) | passed through, no key marked, no retry |
 
@@ -123,6 +123,7 @@ canRetry = the error was classified
 Across requests:
 
 - Rate-limited keys become usable again after 30 seconds (the cooldown is in memory and resets when Pi restarts).
+- A key is only disabled while **another enabled key remains**. The last usable key is never disabled: it keeps being tried, so after you top it up it works again with no manual re-enable.
 - Disabled keys never recover on their own. Re-enable them with `Re-enable disabled keys` in `/login deepseek`, or edit the JSON file.
 - Successful keys are not recorded; they are simply "not marked".
 

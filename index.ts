@@ -259,10 +259,16 @@ function noteFailure(providerId: string, entry: KeyEntry, kind: FailureKind, _de
 	mutatePool(providerId, (pool) => {
 		const index = pool.keys.findIndex((candidate) => candidate.id === entry.id);
 		if (kind !== "rate" && index >= 0) {
-			const target = pool.keys[index];
-			target.disabled = true;
-			target.disabledReason = kind === "balance" ? "insufficient balance" : "invalid key";
-			target.disabledAt = Date.now();
+			// Only disable when another enabled key remains. Disabling the last
+			// usable key would force a manual re-enable after a top-up; keeping it
+			// lets it recover on its own.
+			const hasOtherEnabled = pool.keys.some((candidate) => candidate.id !== entry.id && !candidate.disabled);
+			if (hasOtherEnabled) {
+				const target = pool.keys[index];
+				target.disabled = true;
+				target.disabledReason = kind === "balance" ? "insufficient balance" : "invalid key";
+				target.disabledAt = Date.now();
+			}
 		}
 		// Advance the active pointer so future sessions start on a fresh key.
 		if (index >= 0 && pool.keys.length > 0) pool.activeIndex = (index + 1) % pool.keys.length;
