@@ -203,3 +203,7 @@ canRetry = 有失败分类
 - `/login` 的输入框是明文（Pi 原生行为），不会隐藏 key。
 - 登录收尾时 Pi 仍会把当前 key 写入 `auth.json`；之后若清空池并 `/logout deepseek`，这条记录会被删掉，池文件不受影响。
 - 不做格式校验、不做登录时探测：粘错 key 也能存进去，等到第一次真实请求才会暴露并（在有备份 key 时）自动切换。
+
+## License
+
+[MIT](./LICENSE) © 2026 snorfyang
