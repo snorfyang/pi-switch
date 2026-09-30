@@ -419,9 +419,105 @@ async function importExistingKeys(providerId: string): Promise<number> {
 }
 
 /**
- * The provider's api-key login flow: add keys, switch the active one, remove
- * keys, or re-enable disabled keys. Returns the active credential so Pi can
- * finish its normal login bookkeeping.
+ * Per-key submenu: use, relabel, replace the secret, or remove one key. Works on
+ * the key id so index shifts can never target the wrong key.
+ */
+async function manageOneKey(providerId: string, interaction: ProviderAuthInteraction, keyId: string): Promise<void> {
+	for (;;) {
+		const pool = getPool(providerId) ?? emptyPool();
+		const index = pool.keys.findIndex((entry) => entry.id === keyId);
+		if (index < 0) return;
+		const entry = pool.keys[index];
+		const active = index === pool.activeIndex;
+		const options = [
+			{ id: "use", label: active ? "● Already active" : "▶ Use this key" },
+			{ id: "label", label: entry.label ? `✎ Change label (${entry.label})` : "✎ Set label" },
+			{ id: "edit", label: "✎ Edit key value" },
+			{ id: "remove", label: "🗑 Remove this key" },
+			{ id: "back", label: "↩ Back" },
+		];
+		const choice = await interaction.prompt({
+			type: "select",
+			message: formatKeyRow(providerId, entry, index, active),
+			options,
+		});
+
+		if (!choice || choice === "back") return;
+
+		if (choice === "use") {
+			mutatePool(providerId, (current) => {
+				const at = current.keys.findIndex((candidate) => candidate.id === keyId);
+				if (at >= 0) current.activeIndex = at;
+			});
+			interaction.notify({ type: "info", message: `Active key: ${maskKey(entry.key)}` });
+			continue;
+		}
+
+		if (choice === "label") {
+			const label = (
+				await interaction.prompt({
+					type: "text",
+					message: `New label for ${maskKey(entry.key)} (leave empty to clear)`,
+				})
+			).trim();
+			mutatePool(providerId, (current) => {
+				const found = current.keys.find((candidate) => candidate.id === keyId);
+				if (found) found.label = label || undefined;
+			});
+			interaction.notify({
+				type: "info",
+				message: label ? `Labeled ${maskKey(entry.key)} as "${label}"` : `Cleared label for ${maskKey(entry.key)}`,
+			});
+			continue;
+		}
+
+		if (choice === "edit") {
+			const replacement = (
+				await interaction.prompt({
+					type: "secret",
+					message: `New value for ${maskKey(entry.key)} (leave empty to keep)`,
+				})
+			).trim();
+			if (!replacement) continue;
+			mutatePool(providerId, (current) => {
+				const found = current.keys.find((candidate) => candidate.id === keyId);
+				if (found) {
+					found.key = replacement;
+					found.id = makeKeyId(replacement);
+					found.disabled = false;
+					found.disabledReason = undefined;
+					found.disabledAt = undefined;
+				}
+			});
+			interaction.notify({ type: "info", message: `Updated key to ${maskKey(replacement)}` });
+			return; // id changed; leave the submenu
+		}
+
+		if (choice === "remove") {
+			const confirm = await interaction.prompt({
+				type: "select",
+				message: `Remove ${maskKey(entry.key)}?`,
+				options: [
+					{ id: "yes", label: "Yes, remove" },
+					{ id: "no", label: "Cancel" },
+				],
+			});
+			if (confirm === "yes") {
+				mutatePool(providerId, (current) => {
+					current.keys = current.keys.filter((candidate) => candidate.id !== keyId);
+				});
+				interaction.notify({ type: "info", message: `Removed ${maskKey(entry.key)}` });
+				return;
+			}
+			continue;
+		}
+	}
+}
+
+/**
+ * The provider's api-key login flow: add keys, open a key to use / relabel /
+ * edit / remove it, or re-enable disabled keys. Returns the active credential
+ * so Pi can finish its normal login bookkeeping.
  */
 async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<ApiKeyCredential> {
 	const providerId = PROVIDER_ID;
@@ -439,14 +535,12 @@ async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<Ap
 	for (;;) {
 		const pool = getPool(providerId) ?? emptyPool();
 		const options = pool.keys.map((entry, index) => ({
-			id: `use:${index}`,
+			id: `key:${entry.id}`,
 			label: formatKeyRow(providerId, entry, index, index === pool.activeIndex),
 		}));
-		options.push({ id: "add", label: "➕ Add key", description: "Store another DeepSeek API key" });
+		options.push({ id: "add", label: "➕ Add key" });
 		if (pool.keys.length > 0) {
-			options.push({ id: "label", label: "✎ Set label", description: "Rename a stored key" });
-			options.push({ id: "remove", label: "🗑 Remove key" });
-			options.push({ id: "reset", label: "↻ Re-enable disabled keys", description: "Clear disabled state and cooldowns" });
+			options.push({ id: "reset", label: "↻ Re-enable disabled keys" });
 		}
 		options.push({ id: "done", label: "✔ Done" });
 
@@ -471,56 +565,6 @@ async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<Ap
 			continue;
 		}
 
-		if (choice === "label") {
-			const labelOptions = pool.keys.map((entry, index) => ({
-				id: `lb:${index}`,
-				label: formatKeyRow(providerId, entry, index, false),
-			}));
-			labelOptions.push({ id: "cancel", label: "Cancel" });
-			const target = await interaction.prompt({ type: "select", message: "Label which key?", options: labelOptions });
-			if (target?.startsWith("lb:")) {
-				const index = Number(target.slice(3));
-				const entry = Number.isInteger(index) ? pool.keys[index] : undefined;
-				if (entry) {
-					const label = (
-						await interaction.prompt({
-							type: "text",
-							message: `New label for ${maskKey(entry.key)} (leave empty to clear)`,
-						})
-					).trim();
-					mutatePool(providerId, (current) => {
-						const found = current.keys.find((candidate) => candidate.id === entry.id);
-						if (found) found.label = label || undefined;
-					});
-					interaction.notify({
-						type: "info",
-						message: label ? `Labeled ${maskKey(entry.key)} as "${label}"` : `Cleared label for ${maskKey(entry.key)}`,
-					});
-				}
-			}
-			continue;
-		}
-
-		if (choice === "remove") {
-			const removeOptions = pool.keys.map((entry, index) => ({
-				id: `rm:${index}`,
-				label: formatKeyRow(providerId, entry, index, false),
-			}));
-			removeOptions.push({ id: "cancel", label: "Cancel" });
-			const target = await interaction.prompt({ type: "select", message: "Remove which key?", options: removeOptions });
-			if (target?.startsWith("rm:")) {
-				const index = Number(target.slice(3));
-				const entry = Number.isInteger(index) ? pool.keys[index] : undefined;
-				if (entry) {
-					mutatePool(providerId, (current) => {
-						current.keys = current.keys.filter((candidate) => candidate.id !== entry.id);
-					});
-					interaction.notify({ type: "info", message: `Removed ${maskKey(entry.key)}` });
-				}
-			}
-			continue;
-		}
-
 		if (choice === "reset") {
 			mutatePool(providerId, (current) => {
 				for (const entry of current.keys) {
@@ -534,15 +578,8 @@ async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<Ap
 			continue;
 		}
 
-		if (choice?.startsWith("use:")) {
-			const index = Number(choice.slice(4));
-			const entry = Number.isInteger(index) ? pool.keys[index] : undefined;
-			if (entry) {
-				mutatePool(providerId, (current) => {
-					current.activeIndex = index;
-				});
-				interaction.notify({ type: "info", message: `Active key: ${maskKey(entry.key)}` });
-			}
+		if (choice?.startsWith("key:")) {
+			await manageOneKey(providerId, interaction, choice.slice(4));
 		}
 	}
 }
