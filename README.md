@@ -64,13 +64,15 @@ DeepSeek key pool (2 stored)
 ▶ #1 sk-abc123...wxyz     主号 · available
   #2 sk-def456...uvwx     备用 · available
 ➕ Add key
+✎ Set label
 🗑 Remove key
 ↻ Re-enable disabled keys
 ✔ Done
 ```
 
 - `▶` = 当前 key；选中某个 key 行就把它设为当前。
-- `➕ Add key` 再存一个。
+- `➕ Add key` 再存一个（会顺带问标签，可留空）。
+- `✎ Set label` 给已有 key 改名 / 加标签（留空则清除）。
 - `🗑 Remove key` 进入子菜单选择要删的 key。
 - `↻ Re-enable disabled keys` 清掉所有 `disabled` 和冷却。
 - `✔ Done` 结束登录流程（必须至少有一个 key）。

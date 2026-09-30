@@ -439,6 +439,7 @@ async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<Ap
 		});
 		options.push({ id: "add", label: "➕ Add key", description: "Store another DeepSeek API key" });
 		if (pool.keys.length > 0) {
+			options.push({ id: "label", label: "✎ Set label", description: "Rename a stored key" });
 			options.push({ id: "remove", label: "🗑 Remove key" });
 			options.push({ id: "reset", label: "↻ Re-enable disabled keys", description: "Clear disabled state and cooldowns" });
 		}
@@ -462,6 +463,37 @@ async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<Ap
 
 		if (choice === "add") {
 			await addKeyInteractive(providerId, interaction);
+			continue;
+		}
+
+		if (choice === "label") {
+			const labelOptions = pool.keys.map((entry, index) => ({
+				id: `lb:${index}`,
+				label: `#${index + 1} ${maskKey(entry.key)}`,
+				description: entry.label ?? "(no label)",
+			}));
+			labelOptions.push({ id: "cancel", label: "Cancel" });
+			const target = await interaction.prompt({ type: "select", message: "Label which key?", options: labelOptions });
+			if (target?.startsWith("lb:")) {
+				const index = Number(target.slice(3));
+				const entry = Number.isInteger(index) ? pool.keys[index] : undefined;
+				if (entry) {
+					const label = (
+						await interaction.prompt({
+							type: "text",
+							message: `New label for ${maskKey(entry.key)} (leave empty to clear)`,
+						})
+					).trim();
+					mutatePool(providerId, (current) => {
+						const found = current.keys.find((candidate) => candidate.id === entry.id);
+						if (found) found.label = label || undefined;
+					});
+					interaction.notify({
+						type: "info",
+						message: label ? `Labeled ${maskKey(entry.key)} as "${label}"` : `Cleared label for ${maskKey(entry.key)}`,
+					});
+				}
+			}
 			continue;
 		}
 
