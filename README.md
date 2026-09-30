@@ -16,19 +16,25 @@
 
 ## 安装
 
-方式一（推荐，开发用）：把仓库目录软链到 Pi 的用户扩展目录。
+方式一：从 npm 安装（发布后）。
 
 ```bash
-ln -s "$(pwd)" ~/.pi/agent/extensions/deepseek-keypool
+pi install npm:pi-deepseek-keypool
 ```
 
-方式二：作为本地 package 安装。
+方式二：本地 package。
 
 ```bash
 pi install "$(pwd)"
 ```
 
-方式三：单次加载，不写配置。
+方式三（开发用）：把仓库目录软链到 Pi 的用户扩展目录。
+
+```bash
+ln -s "$(pwd)" ~/.pi/agent/extensions/deepseek-keypool
+```
+
+方式四：单次加载，不写配置。
 
 ```bash
 pi -e "$(pwd)/index.ts"
@@ -203,6 +209,25 @@ canRetry = 有失败分类
 - `/login` 的输入框是明文（Pi 原生行为），不会隐藏 key。
 - 登录收尾时 Pi 仍会把当前 key 写入 `auth.json`；之后若清空池并 `/logout deepseek`，这条记录会被删掉，池文件不受影响。
 - 不做格式校验、不做登录时探测：粘错 key 也能存进去，等到第一次真实请求才会暴露并（在有备份 key 时）自动切换。
+
+## 发布
+
+已按 [Pi Packages](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md) 的要求准备好 manifest：
+
+- `pi.extensions: ["./index.ts"]`
+- `keywords` 包含 `pi-package`（这样才会出现在 [Pi package gallery](https://pi.dev/packages)）
+- 宿主提供的包（`@earendil-works/pi-ai` / `pi-coding-agent`）放在 `peerDependencies: "*"`，**不**放 `dependencies`
+- `files` 只打包 `index.ts` / `README.md` / `LICENSE`
+- 无构建步骤，Pi 直接用 jiti 加载 TS
+
+发布流程：
+
+```bash
+npm login          # 本机目前未登录
+npm publish        # 发布 0.1.0
+```
+
+之后用户即可 `pi install npm:pi-deepseek-keypool`。
 
 ## License
 

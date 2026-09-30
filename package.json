@@ -1,16 +1,36 @@
 {
   "name": "pi-deepseek-keypool",
-  "private": true,
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
-  "description": "Pi extension: multiple DeepSeek API keys with automatic rotation on quota/rate-limit failures.",
+  "description": "Pi extension: keep multiple DeepSeek API keys and rotate automatically on quota or rate-limit failures.",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "deepseek",
+    "api-key",
+    "key-rotation"
+  ],
+  "author": "snorfyang",
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
   "pi": {
     "extensions": [
       "./index.ts"
     ]
   },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "scripts": {
-    "load": "pi --no-extensions -e ./index.ts --list-models deepseek"
+    "load": "pi --no-extensions -e ./index.ts --list-models deepseek",
+    "test": "./test/run-e2e.sh"
   }
 }
