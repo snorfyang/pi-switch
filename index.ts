@@ -77,7 +77,8 @@ interface StoreFile {
 }
 
 function agentDir(): string {
-	return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+	// `||` (not `??`) so an empty env var falls back instead of writing to cwd.
+	return process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
 }
 
 function storePath(): string {
