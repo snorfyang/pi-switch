@@ -181,13 +181,24 @@ canRetry = 有失败分类
 
 ## 测试
 
-仓库自带一个假 DeepSeek 服务，验证「坏 key → 自动换好 key」：
+### 单元测试 + 覆盖率
 
 ```bash
-./test/run-e2e.sh
+npm install     # 首次需要（会装 vitest + @vitest/coverage-v8）
+npm test        # vitest run --coverage
 ```
 
-它会起一个本地 OpenAI 兼容服务，`sk-bad` 返回 402 `Insufficient Balance`，`sk-good` 返回正常流式回复；然后跑一次 `pi -p`，断言：
+- 62 个测试，覆盖存储、去重、轮换/重试、登录菜单、provider 包装。
+- 覆盖率阈值写在 `vitest.config.ts`，**低于 60%（lines/branches/functions/statements）会失败**。
+- 宿主包 `@earendil-works/pi-ai` / `pi-coding-agent` 在测试里用 `test/stubs/` 里的 stub 替换（`resolve.alias`），所以不需要装庞大的 pi-ai 依赖树。
+
+### 端到端
+
+```bash
+npm run test:e2e
+```
+
+起一个本地 OpenAI 兼容假服务（`test/fake-openai-server.mjs`），`sk-bad` 返回 402 `Insufficient Balance`，`sk-good` 返回正常流式回复；然后跑一次真实的 `pi -p`（用临时 agent 目录），断言：
 
 - 请求日志里先出现 `sk-bad`，再出现 `sk-good`；
 - Pi 最终拿到 `sk-good` 的回复；
