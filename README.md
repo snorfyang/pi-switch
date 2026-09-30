@@ -164,13 +164,9 @@ Because the retry happens at the provider layer and before any content, it does 
 - The `/login` input is plain text (Pi behavior); the key is not masked.
 - pi-switch does not validate key format and does not probe keys at login time. A wrong key is accepted, then fails on the first real request (and is skipped automatically if a backup key exists).
 
-## Development
+## Contributing
 
-```bash
-npm install
-npm test          # unit tests + coverage (fails below 60%)
-npm run test:e2e  # end-to-end against a fake OpenAI-compatible endpoint
-```
+See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 

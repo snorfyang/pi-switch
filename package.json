@@ -13,6 +13,14 @@
     "deepseek"
   ],
   "author": "snorfyang",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/snorfyang/pi-switch.git"
+  },
+  "homepage": "https://github.com/snorfyang/pi-switch#readme",
+  "bugs": {
+    "url": "https://github.com/snorfyang/pi-switch/issues"
+  },
   "files": [
     "index.ts",
     "README.md",
