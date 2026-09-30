@@ -91,9 +91,24 @@ describe("ensureRegistered", () => {
 		};
 		expect(api.ensureRegistered(pi as never, ctx as never)).toBeUndefined();
 		expect((registered as Array<{ id: string }>).map((provider) => provider.id).sort()).toEqual([
+			"anthropic",
 			"deepseek",
+			"google",
+			"huggingface",
+			"openai",
 			"zai-coding-cn",
 		]);
+	});
+
+	it("wraps the available providers even when one is missing", () => {
+		const ctx = {
+			modelRegistry: {
+				getRegisteredNativeProvider: () => undefined,
+				getProvider: (id: string) => (id === "deepseek" ? { ...fakeBase(), id, name: id } : undefined),
+			},
+		};
+		expect(api.ensureRegistered(pi as never, ctx as never)).toContain("not available");
+		expect((registered as Array<{ id: string }>).map((provider) => provider.id)).toEqual(["deepseek"]);
 	});
 
 	it("leaves an already registered provider alone", () => {

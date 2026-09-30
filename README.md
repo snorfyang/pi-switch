@@ -4,12 +4,13 @@ Keep several API keys per provider in Pi and switch to the next one automaticall
 
 ## Supported providers
 
-**`deepseek` and `zai-coding-cn` (Z.AI Coding CN) are supported today.**
+**Supported:** `deepseek`, `zai-coding-cn` (Z.AI Coding CN), `anthropic`, `google`, `huggingface`, `openai`.
 
 - For these providers, pi-switch takes over key selection: you can store several keys and it rotates between them.
+- Providers that also have an OAuth login (Anthropic, OpenAI) keep working normally: an OAuth credential takes precedence, and the pool only applies when the stored credential is an API key.
 - **For every other provider, pi-switch does nothing.** They keep Pi's built-in behavior exactly as if this extension were not installed (Pi's own `/login`, its `auth.json` / environment-variable resolution, and its normal error handling).
 
-More providers will be added over time. The storage format and the code are already provider-agnostic, so adding one is just a config change.
+More providers will be added over time. The storage format and the code are already provider-agnostic, so adding one is just an entry in `PROVIDERS`.
 
 ## Features
 
@@ -37,9 +38,9 @@ pi -e "$(pwd)/index.ts"      # one-off, does not write any config
 
 Use it exactly like a normal login:
 
-1. Run `/login` (or `/login <provider>`, for example `/login deepseek`, `/login zai-coding-cn`).
+1. Run `/login` (or `/login <provider>`, for example `/login deepseek`, `/login openai`).
 2. Pick the provider.
-3. Both supported providers only offer API-key login, so the key-pool menu opens right away.
+3. Providers without OAuth (deepseek, zai-coding-cn, google, huggingface) go straight to the key-pool menu. Anthropic and OpenAI also offer their subscription login next to it; pick "Sign in with an API key" to reach the pool.
 
 If the pool is empty and Pi has a stored credential for that provider, pi-switch imports it and goes straight to the menu. Otherwise it asks for a key (DeepSeek shown; the menu always uses the provider's own name):
 

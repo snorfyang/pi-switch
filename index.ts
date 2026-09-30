@@ -45,7 +45,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 // =============================================================================
 
 /** Supported providers. Add more as they are implemented; each is wrapped at session start. */
-const PROVIDERS = ["deepseek", "zai-coding-cn"];
+const PROVIDERS = ["deepseek", "zai-coding-cn", "anthropic", "google", "huggingface", "openai"];
 const STORE_FILE = "pi-switch.json";
 /** Older store names, read for migration and removed after the first write. */
 const LEGACY_STORE_FILES = ["deepseek-keypool.json"];
@@ -392,6 +392,7 @@ function buildWrapper(base: Provider): Provider {
  * original implementation and only the key + retry behavior changes.
  */
 function ensureRegistered(pi: ExtensionAPI, ctx: ExtensionContext): string | undefined {
+	const errors: string[] = [];
 	for (const providerId of PROVIDERS) {
 		try {
 			// Already wrapped by us, or owned by another extension: leave it alone.
@@ -399,14 +400,18 @@ function ensureRegistered(pi: ExtensionAPI, ctx: ExtensionContext): string | und
 			if (existing) continue;
 
 			const base = ctx.modelRegistry.getProvider(providerId);
-			if (!base) return `provider "${providerId}" is not available`;
+			if (!base) {
+				// One unavailable provider must not block the rest.
+				errors.push(`provider "${providerId}" is not available`);
+				continue;
+			}
 
 			pi.registerProvider(buildWrapper(base));
 		} catch (error) {
-			return error instanceof Error ? error.message : String(error);
+			errors.push(error instanceof Error ? error.message : String(error));
 		}
 	}
-	return undefined;
+	return errors.length > 0 ? errors.join("; ") : undefined;
 }
 
 // =============================================================================

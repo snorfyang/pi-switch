@@ -219,7 +219,7 @@ describe("ensureRegistered errors", () => {
 				getProvider: () => undefined,
 			},
 		};
-		expect(api.ensureRegistered(pi as never, ctx as never)).toBe("boom");
+		expect(api.ensureRegistered(pi as never, ctx as never)).toContain("boom");
 	});
 });
 
@@ -255,7 +255,7 @@ describe("extension factory", () => {
 			ui: { notify: () => {} },
 		};
 		handlers.session_start({}, ctx);
-		expect(registered).toHaveLength(2);
+		expect(registered).toHaveLength(6);
 	});
 
 	it("notifies when registration fails", () => {
