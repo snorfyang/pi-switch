@@ -84,14 +84,36 @@ function emptyPool(): PoolState {
 	return { keys: [], activeIndex: 0 };
 }
 
+/** Drop duplicate key values, keeping the first occurrence. */
+function dedupePool(pool: PoolState): PoolState {
+	const seen = new Set<string>();
+	const keys: KeyEntry[] = [];
+	for (const entry of pool.keys) {
+		if (seen.has(entry.key)) continue;
+		seen.add(entry.key);
+		keys.push(entry);
+	}
+	if (keys.length === pool.keys.length) return pool;
+	const activeValue = pool.keys[pool.activeIndex]?.key;
+	const activeIndex = activeValue ? Math.max(0, keys.findIndex((entry) => entry.key === activeValue)) : 0;
+	return { keys, activeIndex };
+}
+
 function loadStore(): StoreFile {
 	try {
 		const raw = readFileSync(storePath(), "utf8");
 		const parsed = JSON.parse(raw) as Partial<StoreFile>;
-		return {
-			version: 1,
-			providers: parsed.providers && typeof parsed.providers === "object" ? parsed.providers : {},
-		};
+		const providers: Record<string, PoolState> = {};
+		if (parsed.providers && typeof parsed.providers === "object") {
+			for (const [id, pool] of Object.entries(parsed.providers)) {
+				if (!pool || !Array.isArray(pool.keys)) continue;
+				providers[id] = dedupePool({
+					keys: pool.keys,
+					activeIndex: typeof pool.activeIndex === "number" ? pool.activeIndex : 0,
+				});
+			}
+		}
+		return { version: 1, providers };
 	} catch {
 		return { version: 1, providers: {} };
 	}
@@ -136,14 +158,20 @@ function makeKeyId(key: string): string {
 	return (hash >>> 0).toString(36);
 }
 
-function addKey(providerId: string, key: string, label?: string): KeyEntry {
+function hasKeyValue(providerId: string, key: string): boolean {
+	return (getPool(providerId)?.keys ?? []).some((entry) => entry.key === key);
+}
+
+/** Returns the new entry, or undefined when the value is already in the pool. */
+function addKey(providerId: string, key: string, label?: string): KeyEntry | undefined {
+	if (hasKeyValue(providerId, key)) return undefined;
 	let added: KeyEntry | undefined;
 	mutatePool(providerId, (pool) => {
-		const entry: KeyEntry = { id: makeKeyId(key), key, label, disabled: false };
-		pool.keys.push(entry);
-		added = entry;
+		if (pool.keys.some((entry) => entry.key === key)) return;
+		added = { id: makeKeyId(key), key, label, disabled: false };
+		pool.keys.push(added);
 	});
-	return added!;
+	return added;
 }
 
 // =============================================================================
@@ -382,6 +410,10 @@ function formatKeyRow(providerId: string, entry: KeyEntry, index: number, active
 async function addKeyInteractive(providerId: string, interaction: ProviderAuthInteraction): Promise<void> {
 	const key = (await interaction.prompt({ type: "secret", message: "Paste your DeepSeek API key (sk-...)" })).trim();
 	if (!key) return;
+	if (hasKeyValue(providerId, key)) {
+		interaction.notify({ type: "info", message: `Already in the pool: ${maskKey(key)}` });
+		return;
+	}
 	const label = (await interaction.prompt({ type: "text", message: "Label for this key (optional)" })).trim();
 	addKey(providerId, key, label || undefined);
 	interaction.notify({ type: "info", message: `Added ${maskKey(key)}` });
@@ -413,10 +445,7 @@ function readStoredKey(providerId: string): string | undefined {
 function importExistingKeys(providerId: string): number {
 	const stored = readStoredKey(providerId);
 	if (!stored) return 0;
-	const existing = new Set((getPool(providerId)?.keys ?? []).map((entry) => entry.key));
-	if (existing.has(stored)) return 0;
-	addKey(providerId, stored, "imported");
-	return 1;
+	return addKey(providerId, stored, "imported") ? 1 : 0;
 }
 
 /**
@@ -480,6 +509,10 @@ async function manageOneKey(providerId: string, interaction: ProviderAuthInterac
 				})
 			).trim();
 			if (!replacement) continue;
+			if (getPool(providerId)?.keys.some((candidate) => candidate.id !== keyId && candidate.key === replacement)) {
+				interaction.notify({ type: "info", message: "Another key already has that value" });
+				continue;
+			}
 			mutatePool(providerId, (current) => {
 				const found = current.keys.find((candidate) => candidate.id === keyId);
 				if (found) {
