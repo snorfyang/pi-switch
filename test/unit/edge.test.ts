@@ -250,12 +250,12 @@ describe("extension factory", () => {
 		const ctx = {
 			modelRegistry: {
 				getRegisteredNativeProvider: () => undefined,
-				getProvider: () => base,
+				getProvider: (id: string) => ({ ...base, id, name: id }),
 			},
 			ui: { notify: () => {} },
 		};
 		handlers.session_start({}, ctx);
-		expect(registered).toHaveLength(1);
+		expect(registered).toHaveLength(2);
 	});
 
 	it("notifies when registration fails", () => {

@@ -4,16 +4,16 @@ Keep several API keys per provider in Pi and switch to the next one automaticall
 
 ## Supported providers
 
-**Only `deepseek` is supported today.**
+**`deepseek` and `zai-coding-cn` (Z.AI Coding CN) are supported today.**
 
-- For `deepseek`, pi-switch takes over key selection: you can store several keys and it rotates between them.
+- For these providers, pi-switch takes over key selection: you can store several keys and it rotates between them.
 - **For every other provider, pi-switch does nothing.** They keep Pi's built-in behavior exactly as if this extension were not installed (Pi's own `/login`, its `auth.json` / environment-variable resolution, and its normal error handling).
 
 More providers will be added over time. The storage format and the code are already provider-agnostic, so adding one is just a config change.
 
 ## Features
 
-- **No extra slash command.** Key management lives inside Pi's normal `/login` flow: `/login deepseek` → "Sign in with an API key" → the key-pool menu.
+- **No extra slash command.** Key management lives inside Pi's normal `/login` flow: `/login <provider>` (e.g. `/login deepseek`, `/login zai-coding-cn`) → "Sign in with an API key" → the key-pool menu.
 - An empty pool is seeded from the key Pi already has stored for that provider (`auth.json`), so you do not have to paste it again.
 - Before sending a request the active key is used. If the request fails **before any content is produced** (the usual quota / rate-limit shape), the next usable key is used to resend the same request. The retry is transparent.
 - Failures are classified: insufficient balance or an invalid key disables that key; a rate limit only parks it for a short cooldown.
@@ -37,11 +37,11 @@ pi -e "$(pwd)/index.ts"      # one-off, does not write any config
 
 Use it exactly like a normal login:
 
-1. Run `/login` (or `/login deepseek`).
-2. Pick `DeepSeek`.
-3. DeepSeek only supports API-key login, so the key-pool menu opens right away.
+1. Run `/login` (or `/login <provider>`, for example `/login deepseek`, `/login zai-coding-cn`).
+2. Pick the provider.
+3. Both supported providers only offer API-key login, so the key-pool menu opens right away.
 
-If the pool is empty and Pi has a stored DeepSeek credential, pi-switch imports it and goes straight to the menu. Otherwise it asks for a key:
+If the pool is empty and Pi has a stored credential for that provider, pi-switch imports it and goes straight to the menu. Otherwise it asks for a key (DeepSeek shown; the menu always uses the provider's own name):
 
 ```
 Login to DeepSeek
@@ -84,7 +84,7 @@ DeepSeek key pool (2 stored)
 
 When you finish, Pi stores the active key in `auth.json` as usual. pi-switch only reads the pool, so that entry is just a side effect and does not affect rotation.
 
-Afterwards pick any `deepseek/*` model with `/model`; rotation happens automatically.
+Afterwards pick any model of that provider with `/model` (e.g. `deepseek/*`); rotation happens automatically.
 
 ## How a key is chosen, and when it retries
 
@@ -124,7 +124,7 @@ Across requests:
 
 - Rate-limited keys become usable again after 30 seconds (the cooldown is in memory and resets when Pi restarts).
 - A key is only disabled while **another enabled key remains**. The last usable key is never disabled: it keeps being tried, so after you top it up it works again with no manual re-enable.
-- Disabled keys never recover on their own. Re-enable them with `Re-enable disabled keys` in `/login deepseek`, or edit the JSON file.
+- Disabled keys never recover on their own. Re-enable them with `Re-enable disabled keys` in `/login <provider>`, or edit the JSON file.
 - Successful keys are not recorded; they are simply "not marked".
 
 ## Configuration
@@ -152,8 +152,8 @@ The file is keyed by provider, so every provider shares one file. Duplicate key 
 
 ## How it works
 
-1. On `session_start` the extension takes the built-in `deepseek` provider and replaces it with a thin wrapper. Models, metadata, and `baseUrl` are reused; only `auth` and `stream` / `streamSimple` change.
-2. `/login deepseek` calls the provider's `auth.apiKey.login(interaction)`, which the wrapper replaces with the key-pool menu.
+1. On `session_start` the extension takes each supported built-in provider and replaces it with a thin wrapper. Models, metadata, and `baseUrl` are reused; only `auth` and `stream` / `streamSimple` change.
+2. `/login <provider>` calls the provider's `auth.apiKey.login(interaction)`, which the wrapper replaces with the key-pool menu.
 3. The wrapper buffers a response's `start` event. If the request fails before any content arrives, it marks the key and resends with the next one. Once content arrives it commits to that attempt and passes everything through.
 
 Because the retry happens at the provider layer and before any content, it does not depend on Pi's agent-level retry and is not limited by `retry.provider.maxRetries`.

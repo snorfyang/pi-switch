@@ -45,7 +45,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 // =============================================================================
 
 /** Supported providers. Add more as they are implemented; each is wrapped at session start. */
-const PROVIDERS = ["deepseek"];
+const PROVIDERS = ["deepseek", "zai-coding-cn"];
 const STORE_FILE = "pi-switch.json";
 /** Older store names, read for migration and removed after the first write. */
 const LEGACY_STORE_FILES = ["deepseek-keypool.json"];

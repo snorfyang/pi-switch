@@ -82,17 +82,18 @@ describe("ensureRegistered", () => {
 		registered.length = 0;
 	});
 
-	it("wraps the supported provider", () => {
-		const base = fakeBase();
+	it("wraps every supported provider", () => {
 		const ctx = {
 			modelRegistry: {
 				getRegisteredNativeProvider: () => undefined,
-				getProvider: (id: string) => (id === "deepseek" ? base : undefined),
+				getProvider: (id: string) => ({ ...fakeBase(), id, name: id }),
 			},
 		};
 		expect(api.ensureRegistered(pi as never, ctx as never)).toBeUndefined();
-		expect(registered).toHaveLength(1);
-		expect((registered[0] as { id: string }).id).toBe("deepseek");
+		expect((registered as Array<{ id: string }>).map((provider) => provider.id).sort()).toEqual([
+			"deepseek",
+			"zai-coding-cn",
+		]);
 	});
 
 	it("leaves an already registered provider alone", () => {
