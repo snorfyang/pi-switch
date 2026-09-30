@@ -324,6 +324,7 @@ function poolAuth(base: Provider): ApiKeyAuth {
 // =============================================================================
 
 let wrappedProvider: Provider | undefined;
+let registry: ExtensionContext["modelRegistry"] | undefined;
 
 function buildWrapper(base: Provider): Provider {
 	return {
@@ -347,6 +348,7 @@ function ensureRegistered(pi: ExtensionAPI, ctx: ExtensionContext): string | und
 		const base = ctx.modelRegistry.getProvider(PROVIDER_ID);
 		if (!base) return `provider "${PROVIDER_ID}" is not available`;
 
+		registry = ctx.modelRegistry;
 		wrappedProvider = buildWrapper(base);
 		pi.registerProvider(wrappedProvider);
 		return undefined;
@@ -378,6 +380,35 @@ async function addKeyInteractive(providerId: string, interaction: ProviderAuthIn
 	interaction.notify({ type: "info", message: `Added ${maskKey(key)}` });
 }
 
+const ENV_KEY_NAMES: Record<string, string> = { deepseek: "DEEPSEEK_API_KEY" };
+
+/**
+ * Seed the pool from keys the provider already has configured (auth.json,
+ * models.json apiKey, or the provider's environment variable) so an existing
+ * single-key setup shows up in the pool instead of forcing a re-paste.
+ */
+async function importExistingKeys(providerId: string): Promise<number> {
+	const found = new Map<string, string>();
+	try {
+		const resolved = await registry?.getApiKeyForProvider(providerId);
+		if (resolved?.trim()) found.set(resolved.trim(), "imported");
+	} catch {
+		// ignore resolution failures; fall through to env / manual entry
+	}
+	const envName = ENV_KEY_NAMES[providerId];
+	const envKey = envName ? process.env[envName]?.trim() : undefined;
+	if (envKey && !found.has(envKey)) found.set(envKey, `imported (${envName})`);
+
+	const existing = new Set((getPool(providerId)?.keys ?? []).map((entry) => entry.key));
+	let imported = 0;
+	for (const [key, label] of found) {
+		if (existing.has(key)) continue;
+		addKey(providerId, key, label);
+		imported++;
+	}
+	return imported;
+}
+
 /**
  * The provider's api-key login flow: add keys, switch the active one, remove
  * keys, or re-enable disabled keys. Returns the active credential so Pi can
@@ -386,9 +417,14 @@ async function addKeyInteractive(providerId: string, interaction: ProviderAuthIn
 async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<ApiKeyCredential> {
 	const providerId = PROVIDER_ID;
 
-	// First run: get at least one key before showing the menu.
+	// First run: import keys the provider already has, otherwise ask for one.
 	if (!getPool(providerId)?.keys.length) {
-		await addKeyInteractive(providerId, interaction);
+		const imported = await importExistingKeys(providerId);
+		if (imported > 0) {
+			interaction.notify({ type: "info", message: `Imported ${imported} existing DeepSeek key(s)` });
+		} else {
+			await addKeyInteractive(providerId, interaction);
+		}
 	}
 
 	for (;;) {
