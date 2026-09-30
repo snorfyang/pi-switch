@@ -26,6 +26,7 @@
   },
   "files": [
     "index.ts",
+    "keypool.ts",
     "README.md",
     "LICENSE"
   ],

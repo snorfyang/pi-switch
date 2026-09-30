@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { __internals as api } from "../../index";
+import { __internals as api } from "../../keypool";
 import { cleanupTempAgentDir, collect, done, scriptedInteraction, start, streamOf, text, useTempAgentDir } from "./util";
 
 let dir: string;

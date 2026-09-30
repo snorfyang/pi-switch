@@ -17,7 +17,7 @@ vi.mock("node:fs", async (importOriginal) => {
 	};
 });
 
-import { __internals as api } from "../../index";
+import { __internals as api } from "../../keypool";
 
 let dir: string;
 

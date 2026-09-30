@@ -19,7 +19,7 @@ export default defineConfig({
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "json-summary"],
-			include: ["index.ts"],
+			include: ["index.ts", "keypool.ts"],
 			thresholds: {
 				lines: 60,
 				functions: 60,

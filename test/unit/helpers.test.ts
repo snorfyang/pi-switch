@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { __internals as api } from "../../index";
+import { __internals as api } from "../../keypool";
 
 describe("maskKey", () => {
 	it("shortens long keys to first6…last4", () => {
@@ -90,5 +90,19 @@ describe("classifyFailure context", () => {
 
 	it("does not classify an unrelated billing phrase", () => {
 		expect(api.classifyFailure({ errorMessage: "update your billing address" })).toBeUndefined();
+	});
+});
+
+describe("sanitizeLabel", () => {
+	it("strips control characters, collapses whitespace and caps length", () => {
+		expect(api.sanitizeLabel("  a\nb\tc  ")).toBe("a b c");
+		expect(api.sanitizeLabel("x".repeat(100))).toHaveLength(40);
+		expect(api.sanitizeLabel("\u0000\u001bbad")).toBe("bad");
+		expect(api.sanitizeLabel("   ")).toBe("");
+	});
+
+	it("keeps a label from breaking the menu row", () => {
+		const entry = { id: "1", key: "sk-abcdefghijkl", label: "a\nb" };
+		expect(api.formatKeyRow("deepseek", entry, 0, false)).toBe("  #1 sk-abc...ijkl  (a b)");
 	});
 });

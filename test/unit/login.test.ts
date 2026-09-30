@@ -2,7 +2,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { __internals as api } from "../../index";
+import { __internals as api } from "../../keypool";
 import { cleanupTempAgentDir, scriptedInteraction, useTempAgentDir } from "./util";
 
 let dir: string;

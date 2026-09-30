@@ -3,7 +3,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import piSwitch, { __internals as api } from "../../index";
+import piSwitch from "../../index";
+import { __internals as api } from "../../keypool";
 import {
 	cleanupTempAgentDir,
 	collect,
