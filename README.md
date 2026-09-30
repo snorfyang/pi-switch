@@ -61,8 +61,8 @@ Login to DeepSeek
 
 ```
 DeepSeek key pool (2 stored)
-▶ #1 sk-abc123...wxyz     主号 · available
-  #2 sk-def456...uvwx     备用 · available
+▶ #1 sk-abc123...wxyz  (主号)
+  #2 sk-def456...uvwx  (备用)
 ➕ Add key
 ✎ Set label
 🗑 Remove key

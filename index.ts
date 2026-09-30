@@ -366,10 +366,19 @@ function maskKey(key: string): string {
 	return `${key.slice(0, 6)}...${key.slice(-4)}`;
 }
 
-function keyStatus(providerId: string, entry: KeyEntry): string {
-	if (entry.disabled) return `disabled: ${entry.disabledReason ?? "unknown"}`;
-	if (isCoolingDown(providerId, entry)) return "cooling down";
-	return "available";
+/**
+ * One menu row. The login selector only renders `label` (it drops
+ * `description`), so the label and status must live in this string.
+ */
+function formatKeyRow(providerId: string, entry: KeyEntry, index: number, active: boolean): string {
+	const marker = active ? "▶" : " ";
+	const label = entry.label ? `  (${entry.label})` : "";
+	const status = entry.disabled
+		? `  [disabled: ${entry.disabledReason ?? "unknown"}]`
+		: isCoolingDown(providerId, entry)
+			? "  [cooling down]"
+			: "";
+	return `${marker} #${index + 1} ${maskKey(entry.key)}${label}${status}`;
 }
 
 async function addKeyInteractive(providerId: string, interaction: ProviderAuthInteraction): Promise<void> {
@@ -429,14 +438,10 @@ async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<Ap
 
 	for (;;) {
 		const pool = getPool(providerId) ?? emptyPool();
-		const options = pool.keys.map((entry, index) => {
-			const marker = index === pool.activeIndex ? "▶" : " ";
-			return {
-				id: `use:${index}`,
-				label: `${marker} #${index + 1} ${maskKey(entry.key)}`,
-				description: [entry.label, keyStatus(providerId, entry)].filter(Boolean).join(" · "),
-			};
-		});
+		const options = pool.keys.map((entry, index) => ({
+			id: `use:${index}`,
+			label: formatKeyRow(providerId, entry, index, index === pool.activeIndex),
+		}));
 		options.push({ id: "add", label: "➕ Add key", description: "Store another DeepSeek API key" });
 		if (pool.keys.length > 0) {
 			options.push({ id: "label", label: "✎ Set label", description: "Rename a stored key" });
@@ -469,8 +474,7 @@ async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<Ap
 		if (choice === "label") {
 			const labelOptions = pool.keys.map((entry, index) => ({
 				id: `lb:${index}`,
-				label: `#${index + 1} ${maskKey(entry.key)}`,
-				description: entry.label ?? "(no label)",
+				label: formatKeyRow(providerId, entry, index, false),
 			}));
 			labelOptions.push({ id: "cancel", label: "Cancel" });
 			const target = await interaction.prompt({ type: "select", message: "Label which key?", options: labelOptions });
@@ -500,8 +504,7 @@ async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<Ap
 		if (choice === "remove") {
 			const removeOptions = pool.keys.map((entry, index) => ({
 				id: `rm:${index}`,
-				label: `#${index + 1} ${maskKey(entry.key)}`,
-				description: [entry.label, keyStatus(providerId, entry)].filter(Boolean).join(" · "),
+				label: formatKeyRow(providerId, entry, index, false),
 			}));
 			removeOptions.push({ id: "cancel", label: "Cancel" });
 			const target = await interaction.prompt({ type: "select", message: "Remove which key?", options: removeOptions });
