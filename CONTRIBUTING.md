@@ -25,6 +25,18 @@ The e2e test (`test/run-e2e.sh`) starts `test/fake-openai-server.mjs`, which ret
 
 CI runs both jobs on every push and pull request (`.github/workflows/ci.yml`).
 
+## Releasing
+
+Publishing runs in CI (`.github/workflows/publish.yml`) on a version tag:
+
+1. `npm version patch` (or `minor` / `major`) — bumps `package.json`, commits, and creates a `vX.Y.Z` tag.
+2. `git push --follow-tags`.
+3. The `Publish` workflow re-runs the tests and publishes with `npm publish --provenance`.
+
+This needs an `NPM_TOKEN` repository secret: an npm **Classic → Automation** token, stored under repository Settings → Secrets and variables → Actions. The tag must match the `package.json` version or the workflow fails.
+
+Pi discovers the published package through the `pi-package` keyword in `package.json`.
+
 ## Layout
 
 ```
