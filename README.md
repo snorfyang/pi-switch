@@ -1,25 +1,25 @@
-# pi-deepseek-keypool
+# pi-switch
 
-给 Pi 的 DeepSeek 存多个 API key，某个 key 没额度或限流时自动切到下一个。
+一个 Pi 扩展：给每个 provider 存多个 API key，某个 key 没额度或限流时自动切到下一个。
 
-第一个「家族」版本，目前只接管 `deepseek` provider；结构留好了扩展位，之后可以照同样方式加到别的家族。
+目前支持 **DeepSeek**（第一个 provider）。存储文件按 provider 分组，接口也按 provider 泛化，后续可以照同样方式加别的 provider。
 
 ## 功能
 
-- **没有单独的斜杠命令**。密钥管理集成在 Pi 原生的 `/login` 里：`/login deepseek` → API key 登录 → 密钥池菜单（界面英文）。
+- **没有单独的斜杠命令**。密钥管理集成在 Pi 原生的 `/login` 里：`/login <provider>`（目前是 `/login deepseek`）→ API key 登录 → 密钥池菜单（界面英文）。
 - 如果池是空的但 Pi 已经存过一个 key（`auth.json`），**会自动导入**，不会再让你重新 paste。
 - 请求发出前用当前 key；如果**还没产生任何内容**就失败，自动换下一个 key 重发同一个请求，用户侧无感。
 - 失败自动分类：余额不足 / key 无效 → 永久禁用该 key；限流 → 冷却 30 秒。详见[运行时的判断与重试规则](#运行时的判断与重试规则)。
 - key 值自动去重：添加 / 编辑 / 导入时若池里已有相同值会被拒绝；读盘时也会折叠历史遗留的重复项。
 - 池里没有 key 时，行为跟内置 DeepSeek provider 完全一致（回退到 `auth.json` / `DEEPSEEK_API_KEY`）。
-- key 存在 `<agent-dir>/deepseek-keypool.json`，权限 `0600`。
+- key 存在 `<agent-dir>/pi-switch.json`，权限 `0600`。
 
 ## 安装
 
 方式一：从 npm 安装（发布后）。
 
 ```bash
-pi install npm:pi-deepseek-keypool
+pi install npm:pi-switch
 ```
 
 方式二：本地 package。
@@ -31,7 +31,7 @@ pi install "$(pwd)"
 方式三（开发用）：把仓库目录软链到 Pi 的用户扩展目录。
 
 ```bash
-ln -s "$(pwd)" ~/.pi/agent/extensions/deepseek-keypool
+ln -s "$(pwd)" ~/.pi/agent/extensions/pi-switch
 ```
 
 方式四：单次加载，不写配置。
@@ -145,7 +145,7 @@ canRetry = 有失败分类
 
 ## 配置
 
-文件：`~/.pi/agent/deepseek-keypool.json`（受 `PI_CODING_AGENT_DIR` 影响）
+文件：`~/.pi/agent/pi-switch.json`（受 `PI_CODING_AGENT_DIR` 影响）
 
 ```json
 {
@@ -193,18 +193,20 @@ canRetry = 有失败分类
 - Pi 最终拿到 `sk-good` 的回复；
 - 存储文件里 `sk-bad` 被标记 `disabled`。
 
-## 扩展到其他家族
+## 扩展到其他 provider
 
-主要动两个常量：
+目前 `PROVIDERS = ["deepseek"]`，`PROVIDER_ID` 取第一个。存储文件的 `providers` 结构本来就被 provider 分组，`poolAuth` / `attemptWithRotation` / `readStoredKey` / `importExistingKeys` 也已经都以 providerId 为参数。
 
-- `PROVIDER_ID`：目前写死 `deepseek`；
-- `session_start` 里捕获并包装对应 provider。
+要加一个 provider，主要是两步：
 
-存储文件的 `providers` 结构本身就是按 provider 分组的，稍加改造（把 `PROVIDER_ID` 换成可配置列表、给 `poolAuth` / `attemptWithRotation` 传入 providerId）即可扩展到 `anthropic`、`openai`、`openrouter` 等。
+1. 把 provider id 加进 `PROVIDERS`；
+2. 在 `session_start` 里对每个 provider 各自捕获并包装一次（现在只包了第一个）。
+
+注意：只有**请求发出时用 header / API key 鉴权**的 provider 适用；OAuth 类 provider 需要额外适配。
 
 ## 已知限制
 
-- 只对**请求发出时用 header / API key 鉴权**的 provider 有效；依赖 OAuth 的家族需要额外适配。
+- 只对**请求发出时用 header / API key 鉴权**的 provider 有效；依赖 OAuth 的 provider 需要额外适配。
 - 如果错误发生在正文已经输出之后，不会重试（宁可让用户看到半截错误，也不重复正文）。
 - `/login` 的输入框是明文（Pi 原生行为），不会隐藏 key。
 - 登录收尾时 Pi 仍会把当前 key 写入 `auth.json`；之后若清空池并 `/logout deepseek`，这条记录会被删掉，池文件不受影响。
@@ -227,7 +229,7 @@ npm login          # 本机目前未登录
 npm publish        # 发布 0.1.0
 ```
 
-之后用户即可 `pi install npm:pi-deepseek-keypool`。
+之后用户即可 `pi install npm:pi-switch`。
 
 ## License
 

@@ -2,6 +2,7 @@
 node_modules/
 
 # Local secrets / runtime state (the real store lives in the pi agent dir)
+pi-switch.json
 deepseek-keypool.json
 *.key
 .env

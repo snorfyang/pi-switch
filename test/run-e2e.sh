@@ -14,7 +14,7 @@ cat > "$agent_dir/models.json" <<'JSON'
 { "providers": { "deepseek": { "baseUrl": "http://127.0.0.1:8799" } } }
 JSON
 
-cat > "$agent_dir/deepseek-keypool.json" <<'JSON'
+cat > "$agent_dir/pi-switch.json" <<'JSON'
 {
   "version": 1,
   "providers": {
@@ -28,7 +28,7 @@ cat > "$agent_dir/deepseek-keypool.json" <<'JSON'
   }
 }
 JSON
-chmod 600 "$agent_dir/deepseek-keypool.json"
+chmod 600 "$agent_dir/pi-switch.json"
 
 log="$(mktemp)"
 PORT=8799 BAD_KEY=sk-bad RATE_KEY=sk-rate LOG="$log" node "$here/test/fake-deepseek.mjs" &
@@ -46,11 +46,11 @@ echo "$out"
 echo "--- requests ---"
 cat "$log"
 echo "--- store ---"
-cat "$agent_dir/deepseek-keypool.json"
+cat "$agent_dir/pi-switch.json"
 
 echo "$out" | grep -q "pong from sk-good" || { echo "FAILED: did not rotate to the good key"; exit 1; }
 grep -q '"apiKey":"sk-bad"' "$log" || { echo "FAILED: never tried the bad key"; exit 1; }
 grep -q '"apiKey":"sk-good"' "$log" || { echo "FAILED: never tried the good key"; exit 1; }
-grep -q '"disabled": true' "$agent_dir/deepseek-keypool.json" || { echo "FAILED: bad key was not disabled"; exit 1; }
+grep -q '"disabled": true' "$agent_dir/pi-switch.json" || { echo "FAILED: bad key was not disabled"; exit 1; }
 
 echo "OK"

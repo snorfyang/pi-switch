@@ -1,15 +1,16 @@
 {
-  "name": "pi-deepseek-keypool",
+  "name": "pi-switch",
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
-  "description": "Pi extension: keep multiple DeepSeek API keys and rotate automatically on quota or rate-limit failures.",
+  "description": "Pi extension: keep multiple API keys per provider and switch automatically when one runs out of quota or hits its rate limit. DeepSeek for now.",
   "keywords": [
     "pi-package",
     "pi",
-    "deepseek",
     "api-key",
-    "key-rotation"
+    "key-rotation",
+    "key-switch",
+    "deepseek"
   ],
   "author": "snorfyang",
   "files": [

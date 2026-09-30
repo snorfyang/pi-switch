@@ -1,24 +1,25 @@
 /**
- * pi-deepseek-keypool
+ * pi-switch
  *
- * A Pi extension that lets you keep several DeepSeek API keys and rotates
- * automatically when one runs out of balance or hits its rate limit.
+ * A Pi extension that keeps several API keys per provider and rotates to the
+ * next one when a key runs out of balance or hits its rate limit. DeepSeek is
+ * the first supported provider; the store is keyed by provider id.
  *
  * How it works:
- *  - It replaces the built-in `deepseek` provider with a thin wrapper that
- *    reuses the built-in provider's models + streaming, but resolves the
- *    request key from a local key pool.
+ *  - It replaces the built-in provider with a thin wrapper that reuses the
+ *    built-in provider's models + streaming, but resolves the request key from
+ *    a local key pool.
  *  - The wrapper buffers the `start` event of a response. If the request fails
  *    before any content is produced (the usual quota / rate-limit shape) it
  *    marks that key and retries the same request with the next usable key.
  *  - A balance / invalid-key failure disables the key (persisted); a rate-limit
  *    failure parks it for a cooldown window.
  *
- * Keys live in `<agent-dir>/deepseek-keypool.json` (mode 0600).
- * Manage them through the normal login flow: `/login deepseek`.
+ * Keys live in `<agent-dir>/pi-switch.json` (mode 0600).
+ * Manage them through the normal login flow: `/login <provider>`.
  */
 
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -43,8 +44,12 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 // Configuration
 // =============================================================================
 
-const PROVIDER_ID = "deepseek";
-const STORE_FILE = "deepseek-keypool.json";
+/** First supported provider. Add more here as they are implemented. */
+const PROVIDERS = ["deepseek"];
+const PROVIDER_ID = PROVIDERS[0];
+const STORE_FILE = "pi-switch.json";
+/** Older store names, read for migration and removed after the first write. */
+const LEGACY_STORE_FILES = ["deepseek-keypool.json"];
 /** A key parked after a transient rate limit is retried after this long. */
 const RATE_LIMIT_COOLDOWN_MS = 30_000;
 
@@ -80,6 +85,10 @@ function storePath(): string {
 	return join(agentDir(), STORE_FILE);
 }
 
+function legacyStorePaths(): string[] {
+	return LEGACY_STORE_FILES.map((file) => join(agentDir(), file));
+}
+
 function emptyPool(): PoolState {
 	return { keys: [], activeIndex: 0 };
 }
@@ -100,23 +109,26 @@ function dedupePool(pool: PoolState): PoolState {
 }
 
 function loadStore(): StoreFile {
-	try {
-		const raw = readFileSync(storePath(), "utf8");
-		const parsed = JSON.parse(raw) as Partial<StoreFile>;
-		const providers: Record<string, PoolState> = {};
-		if (parsed.providers && typeof parsed.providers === "object") {
-			for (const [id, pool] of Object.entries(parsed.providers)) {
-				if (!pool || !Array.isArray(pool.keys)) continue;
-				providers[id] = dedupePool({
-					keys: pool.keys,
-					activeIndex: typeof pool.activeIndex === "number" ? pool.activeIndex : 0,
-				});
+	for (const path of [storePath(), ...legacyStorePaths()]) {
+		try {
+			const raw = readFileSync(path, "utf8");
+			const parsed = JSON.parse(raw) as Partial<StoreFile>;
+			const providers: Record<string, PoolState> = {};
+			if (parsed.providers && typeof parsed.providers === "object") {
+				for (const [id, pool] of Object.entries(parsed.providers)) {
+					if (!pool || !Array.isArray(pool.keys)) continue;
+					providers[id] = dedupePool({
+						keys: pool.keys,
+						activeIndex: typeof pool.activeIndex === "number" ? pool.activeIndex : 0,
+					});
+				}
 			}
+			return { version: 1, providers };
+		} catch {
+			// try the next candidate (new path, then legacy names)
 		}
-		return { version: 1, providers };
-	} catch {
-		return { version: 1, providers: {} };
 	}
+	return { version: 1, providers: {} };
 }
 
 function saveStore(store: StoreFile): void {
@@ -127,6 +139,14 @@ function saveStore(store: StoreFile): void {
 		chmodSync(path, 0o600);
 	} catch {
 		// best effort (e.g. Windows)
+	}
+	// Drop older store names now that the data has been written here.
+	for (const legacy of legacyStorePaths()) {
+		try {
+			unlinkSync(legacy);
+		} catch {
+			// nothing to migrate
+		}
 	}
 }
 
