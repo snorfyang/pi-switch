@@ -1,151 +1,134 @@
 # pi-switch
 
-一个 Pi 扩展：给每个 provider 存多个 API key，某个 key 没额度或限流时自动切到下一个。
+Keep several API keys per provider in Pi and switch to the next one automatically when a key runs out of quota or hits its rate limit.
 
-目前支持 **DeepSeek**（第一个 provider）。存储文件按 provider 分组，接口也按 provider 泛化，后续可以照同样方式加别的 provider。
+## Supported providers
 
-## 功能
+**Only `deepseek` is supported today.**
 
-- **没有单独的斜杠命令**。密钥管理集成在 Pi 原生的 `/login` 里：`/login <provider>`（目前是 `/login deepseek`）→ API key 登录 → 密钥池菜单（界面英文）。
-- 如果池是空的但 Pi 已经存过一个 key（`auth.json`），**会自动导入**，不会再让你重新 paste。
-- 请求发出前用当前 key；如果**还没产生任何内容**就失败，自动换下一个 key 重发同一个请求，用户侧无感。
-- 失败自动分类：余额不足 / key 无效 → 永久禁用该 key；限流 → 冷却 30 秒。详见[运行时的判断与重试规则](#运行时的判断与重试规则)。
-- key 值自动去重：添加 / 编辑 / 导入时若池里已有相同值会被拒绝；读盘时也会折叠历史遗留的重复项。
-- 池里没有 key 时，行为跟内置 DeepSeek provider 完全一致（回退到 `auth.json` / `DEEPSEEK_API_KEY`）。
-- key 存在 `<agent-dir>/pi-switch.json`，权限 `0600`。
+- For `deepseek`, pi-switch takes over key selection: you can store several keys and it rotates between them.
+- **For every other provider, pi-switch does nothing.** They keep Pi's built-in behavior exactly as if this extension were not installed (Pi's own `/login`, its `auth.json` / environment-variable resolution, and its normal error handling).
 
-## 安装
+More providers will be added over time. The storage format and the code are already provider-agnostic, so adding one is just a config change.
 
-方式一：从 npm 安装（发布后）。
+## Features
+
+- **No extra slash command.** Key management lives inside Pi's normal `/login` flow: `/login deepseek` → "Sign in with an API key" → the key-pool menu.
+- An empty pool is seeded from the key Pi already has stored for that provider (`auth.json`), so you do not have to paste it again.
+- Before sending a request the active key is used. If the request fails **before any content is produced** (the usual quota / rate-limit shape), the next usable key is used to resend the same request. The retry is transparent.
+- Failures are classified: insufficient balance or an invalid key disables that key; a rate limit only parks it for a short cooldown.
+- Keys are de-duplicated automatically.
+- Keys are stored in `<agent-dir>/pi-switch.json` with `0600` permissions.
+
+## Install
 
 ```bash
 pi install npm:pi-switch
 ```
 
-方式二：本地 package。
+While developing from a checkout:
 
 ```bash
-pi install "$(pwd)"
+pi install "$(pwd)"          # local package
+pi -e "$(pwd)/index.ts"      # one-off, does not write any config
 ```
 
-方式三（开发用）：把仓库目录软链到 Pi 的用户扩展目录。
+## Usage
 
-```bash
-ln -s "$(pwd)" ~/.pi/agent/extensions/pi-switch
-```
+Use it exactly like a normal login:
 
-方式四：单次加载，不写配置。
+1. Run `/login` (or `/login deepseek`).
+2. Pick `DeepSeek`.
+3. DeepSeek only supports API-key login, so the key-pool menu opens right away.
 
-```bash
-pi -e "$(pwd)/index.ts"
-```
-
-改完代码后在会话里跑 `/reload` 即可生效。
-
-## 使用
-
-和 Pi 原生的登录完全一样：
-
-1. 执行 `/login`（或直接 `/login deepseek`）。
-2. 选 `DeepSeek`。
-3. DeepSeek 只有 API key 一种登录方式，会直接进入密钥池菜单。
-
-如果池里还没有 key，会先尝试导入 **Pi 自己存的凭据**（`auth.json` 里 deepseek 的 `api_key`，标为 `imported`）。
-
-导入成功会提示 `Imported 1 stored DeepSeek key(s)` 并直接进菜单。只有确实没有存过 key 时，才会让你粘贴：
-
-> 环境变量（`DEEPSEEK_API_KEY`）和 `models.json` 里的 `apiKey` **不会**被导入。它们仍然照常生效（空池时 provider 会回退到 Pi 的原生解析），只是不会出现在池里。
+If the pool is empty and Pi has a stored DeepSeek credential, pi-switch imports it and goes straight to the menu. Otherwise it asks for a key:
 
 ```
 Login to DeepSeek
-> Paste your DeepSeek API key (sk-...)
+> Paste your DeepSeek API key
 > Label for this key (optional)
 ```
 
-之后进入菜单：
+The menu:
 
 ```
 DeepSeek key pool (2 stored)
-▶ #1 sk-abc123...wxyz  (主号)
-  #2 sk-def456...uvwx  (备用)
+▶ #1 sk-abc123...wxyz  (main)
+  #2 sk-def456...uvwx  (backup)
 ➕ Add key
 ↻ Re-enable disabled keys
 ✔ Done
 ```
 
-主菜单：
-
-- `▶` = 当前 key。
-- **选中某个 key 行** → 进入这个 key 的子菜单：
+- `▶` marks the active key.
+- **Select a key row** to open its submenu:
 
   ```
-  ▶ #1 sk-abc123...wxyz  (主号)
+  ▶ #1 sk-abc123...wxyz  (main)
   ▶ Use this key
-  ✎ Change label (主号)
+  ✎ Change label (main)
   ✎ Edit key value
   🗑 Remove this key
   ↩ Back
   ```
 
-  - `▶ Use this key` 设为当前（当前那个会显示 `● Already active`）。
-  - `✎ Change label / Set label` 改名 / 加标签（留空清除）。
-  - `✎ Edit key value` 直接换成另一个 key（留空保持），会顺带清掉 disabled 状态；如果新值和池里别的 key 重复会被拒绝。
-  - `🗑 Remove this key` 删除（会先确认）。
-  - `↩ Back` 回主菜单。
+  - `Use this key` makes it active.
+  - `Change label` / `Set label` renames a key (leave empty to clear).
+  - `Edit key value` replaces the secret (leave empty to keep it); duplicate values are rejected.
+  - `Remove this key` deletes it after a confirmation.
+  - `Back` returns to the main menu.
 
-- `➕ Add key` 再存一个：先粘贴 key（若已在池里会提示 `Already in the pool` 并跳过），再问标签（可留空）。
-- `↻ Re-enable disabled keys` 清掉所有 `disabled` 和冷却。
-- `✔ Done` 结束登录流程（必须至少有一个 key）。
+- `Add key` stores another key (it asks for an optional label; duplicate values are rejected).
+- `Re-enable disabled keys` clears every `disabled` flag and cooldown.
+- `Done` finishes the login flow. At least one key is required.
 
-选完 `✔ Done` 后，Pi 会照常做登录收尾，并把当前 key 存进 `auth.json`。但我们的解析只认 key 池，所以那条 `auth.json` 记录只是顺带存的，不影响轮换。
+When you finish, Pi stores the active key in `auth.json` as usual. pi-switch only reads the pool, so that entry is just a side effect and does not affect rotation.
 
-之后用 `/model` 选任意 `deepseek/*` 模型即可，轮换自动发生。
+Afterwards pick any `deepseek/*` model with `/model`; rotation happens automatically.
 
-## 运行时的判断与重试规则
+## How a key is chosen, and when it retries
 
-扩展**不做主动探测**（登录时也不校验 key 的格式或可用性），只有上一次请求的结果。
+pi-switch does not probe keys. It only reacts to the result of the last request.
 
-「可用」的定义：
+A key is "usable" when it is neither disabled nor cooling down:
 
 ```ts
 isUsable(key) = !key.disabled && !isCoolingDown(key)
 ```
 
-每次请求开始时，按「当前 active 优先」排出所有 usable 的 key 作为候选。
+At the start of each request the usable keys are ordered with the active one first.
 
-失败分类（按顺序匹配 `errorMessage` 文本）：
+Failures are classified from the error message:
 
-| 顺序 | 匹配（正则） | 判定 | 后果 |
-|---|---|---|---|
-| 1 | `insufficient balance` / `insufficient_quota` / `quota` / `out of budget` / `billing` / `not enough balance` / `余额不足` / `欠费` | balance | **永久禁用**（写盘），activeIndex 前移 |
-| 2 | `invalid api key` / `authentication fail` / `unauthorized` / `invalid token` / `401` | auth | **永久禁用**（写盘），activeIndex 前移 |
-| 3 | `rate limit` / `429` / `too many requests` / `overloaded` / `server busy` / `请求过多` / `服务繁忙` | rate | **冷却 30 秒**（内存），activeIndex 前移 |
-| — | 其它（超时、5xx、abort、context overflow…） | 不分类 | 不改状态，不重试 |
+| Check | Match examples | Result |
+|---|---|---|
+| 1 | `insufficient balance`, `insufficient_quota`, `quota`, `out of budget`, `billing`, `not enough balance`, `余额不足`, `欠费` | key is **disabled** (persisted), pointer moves on |
+| 2 | `invalid api key`, `authentication fail`, `unauthorized`, `invalid token`, `401` | key is **disabled** (persisted), pointer moves on |
+| 3 | `rate limit`, `429`, `too many requests`, `overloaded`, `server busy`, `请求过多`, `服务繁忙` | key is cooled down for 30 seconds, not disabled |
+| — | anything else (timeouts, 5xx, aborts, context overflow…) | passed through, no key marked, no retry |
 
-**单次请求内**换 key 重试的条件（四个同时满足）：
+Within a single request, pi-switch moves to the next key only when all of these hold:
 
 ```ts
-canRetry = 有失败分类
-        && 当前用的是池里的 key
-        && 还没产出任何正文
-        && 还有下一个候选
+canRetry = the error was classified
+        && a pool key was used
+        && no content has been produced yet
+        && another candidate exists
 ```
 
-含义：
+- Each key is tried at most once per request.
+- Once content has started streaming, an error is passed through and the key is **not** marked (a half-finished response is never duplicated).
+- If no key is usable, a single attempt is made with the fallback key; another failure is reported as-is.
 
-- 每个 key 在**一次请求里最多尝试一次**。
-- 正文一旦开始输出，之后出错**不重试、不标记 key**（宁可透传半截错误，也不重复正文）。
-- 候选为空时会退化成一个 `undefined` 候选，用 `resolve()` 给的第一个 key 硬发一次；再失败就直接报错。
+Across requests:
 
-**跨请求**：
+- Rate-limited keys become usable again after 30 seconds (the cooldown is in memory and resets when Pi restarts).
+- Disabled keys never recover on their own. Re-enable them with `Re-enable disabled keys` in `/login deepseek`, or edit the JSON file.
+- Successful keys are not recorded; they are simply "not marked".
 
-- rate 的 key：30 秒后自动恢复可用（冷却在内存里，重启 Pi 会清零）。
-- balance / auth 的 key：**不会自愈**，必须在 `/login deepseek` 里选 `↻ Re-enable disabled keys`，或手改 JSON。
-- 成功的 key：没有正向记录，只是「没被打标记」。
+## Configuration
 
-## 配置
-
-文件：`~/.pi/agent/pi-switch.json`（受 `PI_CODING_AGENT_DIR` 影响）
+File: `~/.pi/agent/pi-switch.json` (honors `PI_CODING_AGENT_DIR`).
 
 ```json
 {
@@ -153,8 +136,8 @@ canRetry = 有失败分类
   "providers": {
     "deepseek": {
       "keys": [
-        { "id": "a1b2c3", "key": "sk-...", "label": "主号" },
-        { "id": "d4e5f6", "key": "sk-...", "label": "备用" }
+        { "id": "a1b2c3", "key": "sk-...", "label": "main" },
+        { "id": "d4e5f6", "key": "sk-...", "label": "backup" }
       ],
       "activeIndex": 0
     }
@@ -162,91 +145,32 @@ canRetry = 有失败分类
 }
 ```
 
-`disabled` / `disabledReason` / `disabledAt` 由扩展在失败时写入；手动删掉就可以恢复。
+`disabled` / `disabledReason` / `disabledAt` are written when a key fails; remove them by hand to recover a key.
 
-加载时会按 `key` 值去重（相同值只保留第一条），并在下一次写盘时清理掉文件里的重复项。
+The file is keyed by provider, so every provider shares one file. Duplicate key values are collapsed when the file is read.
 
-## 工作原理
+## How it works
 
-1. `/login deepseek` 时，Pi 调用 provider 的 `auth.apiKey.login(interaction)`。我们在包装 provider 时替换了它，把它变成密钥池的管理流程（`interaction.prompt` 支持 select / secret / text，且可以循环）。
-2. 在 `session_start` 时取出内置 `deepseek` provider，用一个薄包装替换它：
-   - `getModels` / 模型元数据 / baseUrl 等全部沿用原来的；
-   - 只改 `auth`（从 key 池取 key，`login` 走上面的流程）和 `stream` / `streamSimple`（加重试）。
-3. 包装层缓冲响应的 `start` 事件：
-   - 一旦出现正文（`text_delta`、`toolcall_*` 等）就锁定这次尝试，后续事件原样透传；
-   - 如果 `start` 之后直接是 `error`，说明请求在产生内容前就被拒了——正是额度/限流的形态，于是标记失败、换下一个 key、重发。
-4. 所有 key 都用完仍未成功时，把最后一次错误原样交给 Pi。
+1. On `session_start` the extension takes the built-in `deepseek` provider and replaces it with a thin wrapper. Models, metadata, and `baseUrl` are reused; only `auth` and `stream` / `streamSimple` change.
+2. `/login deepseek` calls the provider's `auth.apiKey.login(interaction)`, which the wrapper replaces with the key-pool menu.
+3. The wrapper buffers a response's `start` event. If the request fails before any content arrives, it marks the key and resends with the next one. Once content arrives it commits to that attempt and passes everything through.
 
-因为重试发生在 provider 层、且在任何内容产生之前，所以不需要 Pi 的 agent 级重试，也不受 `retry.provider.maxRetries` 限制。
+Because the retry happens at the provider layer and before any content, it does not depend on Pi's agent-level retry and is not limited by `retry.provider.maxRetries`.
 
-## 测试
+## Limitations
 
-### 单元测试 + 覆盖率
+- Only providers that authenticate with a header / API key at request time are supported. OAuth-based providers need extra work.
+- Errors that happen after content has already streamed are not retried.
+- The `/login` input is plain text (Pi behavior); the key is not masked.
+- pi-switch does not validate key format and does not probe keys at login time. A wrong key is accepted, then fails on the first real request (and is skipped automatically if a backup key exists).
 
-```bash
-npm install     # 首次需要（会装 vitest + @vitest/coverage-v8）
-npm test        # vitest run --coverage
-```
-
-- 62 个测试，覆盖存储、去重、轮换/重试、登录菜单、provider 包装。
-- 覆盖率阈值写在 `vitest.config.ts`，**低于 60%（lines/branches/functions/statements）会失败**。
-- 宿主包 `@earendil-works/pi-ai` / `pi-coding-agent` 在测试里用 `test/stubs/` 里的 stub 替换（`resolve.alias`），所以不需要装庞大的 pi-ai 依赖树。
-
-### 端到端
+## Development
 
 ```bash
-npm run test:e2e
+npm install
+npm test          # unit tests + coverage (fails below 60%)
+npm run test:e2e  # end-to-end against a fake OpenAI-compatible endpoint
 ```
-
-起一个本地 OpenAI 兼容假服务（`test/fake-openai-server.mjs`），`sk-bad` 返回 402 `Insufficient Balance`，`sk-good` 返回正常流式回复；然后跑一次真实的 `pi -p`（用临时 agent 目录），断言：
-
-- 请求日志里先出现 `sk-bad`，再出现 `sk-good`；
-- Pi 最终拿到 `sk-good` 的回复；
-- 存储文件里 `sk-bad` 被标记 `disabled`。
-
-### CI
-
-`.github/workflows/ci.yml` 在 push / PR 时跑两个 job：
-
-- **unit**：`npm ci && npm test`（含覆盖率阈值，低于 60% 直接失败）。
-- **e2e**：`npm ci` → 全局安装指定版本的 Pi CLI（`--offline` 跑，不依赖网络）→ `npm run test:e2e`。
-
-## 扩展到其他 provider
-
-目前 `PROVIDERS = ["deepseek"]`，`session_start` 会对列表里每个 provider 各自包装一次。存储文件的 `providers` 结构本来就被 provider 分组，`poolAuth` / `attemptWithRotation` / `readStoredKey` / `importExistingKeys` / `runKeyPoolLogin` 全部以 providerId（和显示名）为参数，UI 文案也用 provider 自己的名字。
-
-要加一个 provider：
-
-1. 把 provider id 加进 `PROVIDERS` 即可（包装、菜单、存储都自动跟着走）。
-
-注意：只有**请求发出时用 header / API key 鉴权**的 provider 适用；OAuth 类 provider 需要额外适配。
-
-## 已知限制
-
-- 只对**请求发出时用 header / API key 鉴权**的 provider 有效；依赖 OAuth 的 provider 需要额外适配。
-- 如果错误发生在正文已经输出之后，不会重试（宁可让用户看到半截错误，也不重复正文）。
-- `/login` 的输入框是明文（Pi 原生行为），不会隐藏 key。
-- 登录收尾时 Pi 仍会把当前 key 写入 `auth.json`；之后若清空池并 `/logout deepseek`，这条记录会被删掉，池文件不受影响。
-- 不做格式校验、不做登录时探测：粘错 key 也能存进去，等到第一次真实请求才会暴露并（在有备份 key 时）自动切换。
-
-## 发布
-
-已按 [Pi Packages](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md) 的要求准备好 manifest：
-
-- `pi.extensions: ["./index.ts"]`
-- `keywords` 包含 `pi-package`（这样才会出现在 [Pi package gallery](https://pi.dev/packages)）
-- 宿主提供的包（`@earendil-works/pi-ai` / `pi-coding-agent`）放在 `peerDependencies: "*"`，**不**放 `dependencies`
-- `files` 只打包 `index.ts` / `README.md` / `LICENSE`
-- 无构建步骤，Pi 直接用 jiti 加载 TS
-
-发布流程：
-
-```bash
-npm login          # 本机目前未登录
-npm publish        # 发布 0.1.0
-```
-
-之后用户即可 `pi install npm:pi-switch`。
 
 ## License
 
