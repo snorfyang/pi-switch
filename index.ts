@@ -44,9 +44,8 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 // Configuration
 // =============================================================================
 
-/** First supported provider. Add more here as they are implemented. */
+/** Supported providers. Add more as they are implemented; each is wrapped at session start. */
 const PROVIDERS = ["deepseek"];
-const PROVIDER_ID = PROVIDERS[0];
 const STORE_FILE = "pi-switch.json";
 /** Older store names, read for migration and removed after the first write. */
 const LEGACY_STORE_FILES = ["deepseek-keypool.json"];
@@ -350,7 +349,7 @@ function poolAuth(base: Provider): ApiKeyAuth {
 		name: baseAuth?.name ?? `${base.name} API key`,
 		// `/login <provider>` lands here: the whole key-pool management menu is the
 		// provider's api-key login flow, so there is no separate slash command.
-		login: (interaction) => runKeyPoolLogin(interaction),
+		login: (interaction) => runKeyPoolLogin(base.id, base.name, interaction),
 		check: async (input) => {
 			const pool = getPool(base.id);
 			if (pool && pool.keys.length > 0) return { type: "api_key", source: "key pool" };
@@ -371,8 +370,6 @@ function poolAuth(base: Provider): ApiKeyAuth {
 // Provider registration
 // =============================================================================
 
-let wrappedProvider: Provider | undefined;
-
 function buildWrapper(base: Provider): Provider {
 	return {
 		...base,
@@ -382,25 +379,26 @@ function buildWrapper(base: Provider): Provider {
 }
 
 /**
- * Wrap the built-in provider once the runtime is available. The built-in
+ * Wrap each supported provider once the runtime is available. The built-in
  * provider is captured before we replace it, so streaming is delegated to the
  * original implementation and only the key + retry behavior changes.
  */
 function ensureRegistered(pi: ExtensionAPI, ctx: ExtensionContext): string | undefined {
-	try {
-		const existing = ctx.modelRegistry.getRegisteredNativeProvider(PROVIDER_ID);
-		if (existing && existing === wrappedProvider) return undefined;
-		if (existing) return undefined; // another extension owns this provider id
+	for (const providerId of PROVIDERS) {
+		try {
+			// Already wrapped by us, or owned by another extension: leave it alone.
+			const existing = ctx.modelRegistry.getRegisteredNativeProvider(providerId);
+			if (existing) continue;
 
-		const base = ctx.modelRegistry.getProvider(PROVIDER_ID);
-		if (!base) return `provider "${PROVIDER_ID}" is not available`;
+			const base = ctx.modelRegistry.getProvider(providerId);
+			if (!base) return `provider "${providerId}" is not available`;
 
-		wrappedProvider = buildWrapper(base);
-		pi.registerProvider(wrappedProvider);
-		return undefined;
-	} catch (error) {
-		return error instanceof Error ? error.message : String(error);
+			pi.registerProvider(buildWrapper(base));
+		} catch (error) {
+			return error instanceof Error ? error.message : String(error);
+		}
 	}
+	return undefined;
 }
 
 // =============================================================================
@@ -427,8 +425,8 @@ function formatKeyRow(providerId: string, entry: KeyEntry, index: number, active
 	return `${marker} #${index + 1} ${maskKey(entry.key)}${label}${status}`;
 }
 
-async function addKeyInteractive(providerId: string, interaction: ProviderAuthInteraction): Promise<void> {
-	const key = (await interaction.prompt({ type: "secret", message: "Paste your DeepSeek API key (sk-...)" })).trim();
+async function addKeyInteractive(providerId: string, providerName: string, interaction: ProviderAuthInteraction): Promise<void> {
+	const key = (await interaction.prompt({ type: "secret", message: `Paste your ${providerName} API key` })).trim();
 	if (!key) return;
 	if (hasKeyValue(providerId, key)) {
 		interaction.notify({ type: "info", message: `Already in the pool: ${maskKey(key)}` });
@@ -573,16 +571,14 @@ async function manageOneKey(providerId: string, interaction: ProviderAuthInterac
  * edit / remove it, or re-enable disabled keys. Returns the active credential
  * so Pi can finish its normal login bookkeeping.
  */
-async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<ApiKeyCredential> {
-	const providerId = PROVIDER_ID;
-
+async function runKeyPoolLogin(providerId: string, providerName: string, interaction: ProviderAuthInteraction): Promise<ApiKeyCredential> {
 	// First run: import the stored credential, otherwise ask for one.
 	if (!getPool(providerId)?.keys.length) {
 		const imported = importExistingKeys(providerId);
 		if (imported > 0) {
-			interaction.notify({ type: "info", message: `Imported ${imported} stored DeepSeek key(s)` });
+			interaction.notify({ type: "info", message: `Imported ${imported} stored ${providerName} key(s)` });
 		} else {
-			await addKeyInteractive(providerId, interaction);
+			await addKeyInteractive(providerId, providerName, interaction);
 		}
 	}
 
@@ -600,14 +596,14 @@ async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<Ap
 
 		const choice = await interaction.prompt({
 			type: "select",
-			message: `DeepSeek key pool (${pool.keys.length} stored)`,
+			message: `${providerName} key pool (${pool.keys.length} stored)`,
 			options,
 		});
 
 		if (choice === "done") {
 			const preferred = pool.keys.length > 0 ? preferredKey(providerId, pool) : undefined;
 			if (!preferred) {
-				await addKeyInteractive(providerId, interaction);
+				await addKeyInteractive(providerId, providerName, interaction);
 				continue;
 			}
 			interaction.notify({ type: "info", message: `Saved. Active key: ${maskKey(preferred.key)}` });
@@ -615,7 +611,7 @@ async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<Ap
 		}
 
 		if (choice === "add") {
-			await addKeyInteractive(providerId, interaction);
+			await addKeyInteractive(providerId, providerName, interaction);
 			continue;
 		}
 
@@ -642,12 +638,12 @@ async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<Ap
 // Extension entry point
 // =============================================================================
 
-export default function piDeepSeekKeyPool(pi: ExtensionAPI): void {
-	// The runtime is only reachable from a session, so wrap the provider on start.
-	// This also re-asserts the wrapper after a session switch rebuilds the runtime.
-	// The key-pool UI lives in the provider's api-key login flow: /login deepseek.
+export default function piSwitch(pi: ExtensionAPI): void {
+	// The runtime is only reachable from a session, so wrap the providers on start.
+	// This also re-asserts the wrappers after a session switch rebuilds the runtime.
+	// The key-pool UI lives in each provider's api-key login flow: /login <provider>.
 	pi.on("session_start", (_event, ctx) => {
 		const error = ensureRegistered(pi, ctx);
-		if (error) ctx.ui.notify(`deepseek-keypool: ${error}`, "error");
+		if (error) ctx.ui.notify(`pi-switch: ${error}`, "error");
 	});
 }

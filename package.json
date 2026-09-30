@@ -31,7 +31,7 @@
     "node": ">=22.19.0"
   },
   "scripts": {
-    "load": "pi --no-extensions -e ./index.ts --list-models deepseek",
+    "load": "pi --no-extensions -e ./index.ts --list-models",
     "test": "./test/run-e2e.sh"
   }
 }

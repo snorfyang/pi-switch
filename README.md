@@ -195,12 +195,11 @@ canRetry = 有失败分类
 
 ## 扩展到其他 provider
 
-目前 `PROVIDERS = ["deepseek"]`，`PROVIDER_ID` 取第一个。存储文件的 `providers` 结构本来就被 provider 分组，`poolAuth` / `attemptWithRotation` / `readStoredKey` / `importExistingKeys` 也已经都以 providerId 为参数。
+目前 `PROVIDERS = ["deepseek"]`，`session_start` 会对列表里每个 provider 各自包装一次。存储文件的 `providers` 结构本来就被 provider 分组，`poolAuth` / `attemptWithRotation` / `readStoredKey` / `importExistingKeys` / `runKeyPoolLogin` 全部以 providerId（和显示名）为参数，UI 文案也用 provider 自己的名字。
 
-要加一个 provider，主要是两步：
+要加一个 provider：
 
-1. 把 provider id 加进 `PROVIDERS`；
-2. 在 `session_start` 里对每个 provider 各自捕获并包装一次（现在只包了第一个）。
+1. 把 provider id 加进 `PROVIDERS` 即可（包装、菜单、存储都自动跟着走）。
 
 注意：只有**请求发出时用 header / API key 鉴权**的 provider 适用；OAuth 类 provider 需要额外适配。
 

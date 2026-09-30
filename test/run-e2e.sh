@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# End-to-end check: the wrapper must retry a dead DeepSeek key with the next one.
+# End-to-end check: the wrapper must retry a dead key with the next one.
 #
 #   ./test/run-e2e.sh
 #
-# Uses a throwaway agent dir and a fake DeepSeek endpoint. Requires `pi` on PATH.
+# Runs the first supported provider (deepseek) against a fake OpenAI-compatible
+# endpoint in a throwaway agent dir. Requires `pi` on PATH.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -31,7 +32,7 @@ JSON
 chmod 600 "$agent_dir/pi-switch.json"
 
 log="$(mktemp)"
-PORT=8799 BAD_KEY=sk-bad RATE_KEY=sk-rate LOG="$log" node "$here/test/fake-deepseek.mjs" &
+PORT=8799 BAD_KEY=sk-bad RATE_KEY=sk-rate LOG="$log" node "$here/test/fake-openai-server.mjs" &
 server_pid=$!
 trap 'kill "$server_pid" 2>/dev/null || true' EXIT
 sleep 0.7

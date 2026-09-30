@@ -1,8 +1,8 @@
 /**
- * Minimal fake DeepSeek OpenAI-compatible server for testing key rotation.
+ * Minimal fake OpenAI-compatible server for testing key rotation.
  *
- * The first key (DEEPSEEK_KEY_BAD) gets HTTP 402 "Insufficient Balance".
- * The second key (DEEPSEEK_KEY_GOOD) gets a valid SSE completion.
+ * BAD_KEY gets HTTP 402 "Insufficient Balance", RATE_KEY gets HTTP 429
+ * "Rate Limit Reached", any other key gets a valid SSE completion.
  *
  * Env:
  *   PORT            port to listen on (default 8799)
@@ -72,7 +72,7 @@ const server = createServer(async (req, res) => {
 			id: "chatcmpl-test",
 			object: "chat.completion.chunk",
 			created: 1,
-			model: "deepseek-chat",
+			model: "fake-model",
 			choices: [{ index: 0, delta, finish_reason: finish ?? null }],
 		})}\n\n`;
 	res.write(chunk({ role: "assistant", content: "pong from " + apiKey.slice(0, 8) }));
