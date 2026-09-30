@@ -6,7 +6,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "description": "Pi extension: keep multiple API keys per provider and switch automatically when one runs out of quota or hits its rate limit. DeepSeek for now.",
+  "description": "Pi extension: keep multiple API keys per provider and switch automatically to the next key when one runs out of quota or hits its rate limit.",
   "keywords": [
     "pi-package",
     "pi",
