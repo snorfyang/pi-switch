@@ -27,13 +27,31 @@ CI runs both jobs on every push and pull request (`.github/workflows/ci.yml`).
 
 ## Releasing
 
-Publishing runs in CI (`.github/workflows/publish.yml`) on a version tag:
+The first version is published by hand; later versions publish from CI using npm **trusted publishing** (OIDC). No token is stored anywhere.
 
-1. `npm version patch` (or `minor` / `major`) — bumps `package.json`, commits, and creates a `vX.Y.Z` tag.
-2. `git push --follow-tags`.
-3. The `Publish` workflow re-runs the tests and publishes with `npm publish --provenance`.
+### First publish (creates the package on npm)
 
-This needs an `NPM_TOKEN` repository secret: an npm **Classic → Automation** token, stored under repository Settings → Secrets and variables → Actions. The tag must match the `package.json` version or the workflow fails.
+```bash
+npm login
+npm publish
+```
+
+### Configure trusted publishing (once)
+
+On npmjs.com go to the package → **Settings → Trusted Publisher → GitHub Actions** and fill in:
+
+- Organization or user: `snorfyang`
+- Repository: `pi-switch`
+- Workflow filename: `publish.yml`
+
+### Later releases
+
+```bash
+npm version patch        # bumps package.json, commits, tags vX.Y.Z
+git push --follow-tags   # triggers .github/workflows/publish.yml
+```
+
+The workflow re-runs the tests, checks the tag matches `package.json`, and runs `npm publish`. Trusted publishing generates provenance automatically and requires only `id-token: write`.
 
 Pi discovers the published package through the `pi-package` keyword in `package.json`.
 
