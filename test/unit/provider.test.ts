@@ -50,6 +50,27 @@ describe("poolAuth", () => {
 		expect(await auth.check!({} as never)).toEqual({ type: "api_key", source: "key pool" });
 	});
 
+	it("does not hide a provider that the built-in auth can resolve", async () => {
+		const base = fakeBase({
+			auth: { apiKey: { resolve: async () => ({ auth: { apiKey: "base-key" }, source: "ANTHROPIC_API_KEY" }) } },
+		});
+		const auth = api.poolAuth(base as never);
+		expect(await auth.check!({} as never)).toEqual({ type: "api_key", source: "ANTHROPIC_API_KEY" });
+	});
+
+	it("prefers a side-effect-free base check when present", async () => {
+		const base = fakeBase({
+			auth: {
+				apiKey: {
+					check: async () => ({ type: "api_key", source: "base-check" }),
+					resolve: async () => undefined,
+				},
+			},
+		});
+		const auth = api.poolAuth(base as never);
+		expect(await auth.check!({} as never)).toEqual({ type: "api_key", source: "base-check" });
+	});
+
 	it("prefers the pool key and otherwise falls back to the built-in auth", async () => {
 		const auth = api.poolAuth(fakeBase() as never);
 		expect((await auth.resolve!({} as never))?.auth.apiKey).toBe("base-key");

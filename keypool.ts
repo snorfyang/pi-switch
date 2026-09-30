@@ -397,7 +397,12 @@ function poolAuth(base: Provider): ApiKeyAuth {
 		check: async (input) => {
 			const pool = getPool(base.id);
 			if (pool && pool.keys.length > 0) return { type: "api_key", source: "key pool" };
-			return baseAuth?.check ? baseAuth.check(input) : undefined;
+			// Pi stops at the first `check` that exists, so returning undefined here would
+			// hide a provider that is configured via auth.json or the environment. Mirror
+			// the runtime: use a side-effect-free base check when there is one, else resolve.
+			if (baseAuth?.check) return baseAuth.check(input);
+			const resolved = await baseAuth?.resolve(input);
+			return resolved ? { type: "api_key", source: resolved.source } : undefined;
 		},
 		resolve: async (input) => {
 			const pool = getPool(base.id);
