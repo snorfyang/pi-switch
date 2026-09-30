@@ -371,11 +371,11 @@ function keyStatus(providerId: string, entry: KeyEntry): string {
 }
 
 async function addKeyInteractive(providerId: string, interaction: ProviderAuthInteraction): Promise<void> {
-	const key = (await interaction.prompt({ type: "secret", message: "粘贴 DeepSeek API key（sk-...）" })).trim();
+	const key = (await interaction.prompt({ type: "secret", message: "Paste your DeepSeek API key (sk-...)" })).trim();
 	if (!key) return;
-	const label = (await interaction.prompt({ type: "text", message: "给这个 key 起个标签（可留空）" })).trim();
+	const label = (await interaction.prompt({ type: "text", message: "Label for this key (optional)" })).trim();
 	addKey(providerId, key, label || undefined);
-	interaction.notify({ type: "info", message: `已添加 ${maskKey(key)}` });
+	interaction.notify({ type: "info", message: `Added ${maskKey(key)}` });
 }
 
 /**
@@ -401,16 +401,16 @@ async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<Ap
 				description: [entry.label, keyStatus(providerId, entry)].filter(Boolean).join(" · "),
 			};
 		});
-		options.push({ id: "add", label: "➕ 添加密钥", description: "再存一个 DeepSeek API key" });
+		options.push({ id: "add", label: "➕ Add key", description: "Store another DeepSeek API key" });
 		if (pool.keys.length > 0) {
-			options.push({ id: "remove", label: "🗑 删除密钥" });
-			options.push({ id: "reset", label: "↻ 重新启用已禁用", description: "清除 disabled 与冷却状态" });
+			options.push({ id: "remove", label: "🗑 Remove key" });
+			options.push({ id: "reset", label: "↻ Re-enable disabled keys", description: "Clear disabled state and cooldowns" });
 		}
-		options.push({ id: "done", label: "✔ 完成" });
+		options.push({ id: "done", label: "✔ Done" });
 
 		const choice = await interaction.prompt({
 			type: "select",
-			message: `DeepSeek 密钥管理（已存 ${pool.keys.length} 个）`,
+			message: `DeepSeek key pool (${pool.keys.length} stored)`,
 			options,
 		});
 
@@ -420,7 +420,7 @@ async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<Ap
 				await addKeyInteractive(providerId, interaction);
 				continue;
 			}
-			interaction.notify({ type: "info", message: `已保存，当前使用 ${maskKey(preferred.key)}` });
+			interaction.notify({ type: "info", message: `Saved. Active key: ${maskKey(preferred.key)}` });
 			return { type: "api_key", key: preferred.key };
 		}
 
@@ -435,8 +435,8 @@ async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<Ap
 				label: `#${index + 1} ${maskKey(entry.key)}`,
 				description: [entry.label, keyStatus(providerId, entry)].filter(Boolean).join(" · "),
 			}));
-			removeOptions.push({ id: "cancel", label: "取消" });
-			const target = await interaction.prompt({ type: "select", message: "删除哪个 key？", options: removeOptions });
+			removeOptions.push({ id: "cancel", label: "Cancel" });
+			const target = await interaction.prompt({ type: "select", message: "Remove which key?", options: removeOptions });
 			if (target?.startsWith("rm:")) {
 				const index = Number(target.slice(3));
 				const entry = Number.isInteger(index) ? pool.keys[index] : undefined;
@@ -444,7 +444,7 @@ async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<Ap
 					mutatePool(providerId, (current) => {
 						current.keys = current.keys.filter((candidate) => candidate.id !== entry.id);
 					});
-					interaction.notify({ type: "info", message: `已删除 ${maskKey(entry.key)}` });
+					interaction.notify({ type: "info", message: `Removed ${maskKey(entry.key)}` });
 				}
 			}
 			continue;
@@ -459,7 +459,7 @@ async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<Ap
 				}
 			});
 			cooldowns.delete(providerId);
-			interaction.notify({ type: "info", message: "已重新启用全部 key" });
+			interaction.notify({ type: "info", message: "Re-enabled all keys" });
 			continue;
 		}
 
@@ -470,7 +470,7 @@ async function runKeyPoolLogin(interaction: ProviderAuthInteraction): Promise<Ap
 				mutatePool(providerId, (current) => {
 					current.activeIndex = index;
 				});
-				interaction.notify({ type: "info", message: `当前 key：${maskKey(entry.key)}` });
+				interaction.notify({ type: "info", message: `Active key: ${maskKey(entry.key)}` });
 			}
 		}
 	}

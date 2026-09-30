@@ -47,30 +47,30 @@ pi -e "$(pwd)/index.ts"
 第一次运行时池是空的，会先让你粘贴一个 key：
 
 ```
-登录到 DeepSeek
-> 粘贴 DeepSeek API key（sk-...）
-> 给这个 key 起个标签（可留空）
+Login to DeepSeek
+> Paste your DeepSeek API key (sk-...)
+> Label for this key (optional)
 ```
 
-之后进入菜单：
+之后进入菜单（界面为英文）：
 
 ```
-DeepSeek 密钥管理（已存 2 个）
+DeepSeek key pool (2 stored)
 ▶ #1 sk-abc123...wxyz     主号 · available
   #2 sk-def456...uvwx     备用 · available
-➕ 添加密钥
-🗑 删除密钥
-↻ 重新启用已禁用
-✔ 完成
+➕ Add key
+🗑 Remove key
+↻ Re-enable disabled keys
+✔ Done
 ```
 
 - `▶` = 当前 key；选中某个 key 行就把它设为当前。
-- `➕ 添加密钥` 再存一个。
-- `🗑 删除密钥` 进入子菜单选择要删的 key。
-- `↻ 重新启用已禁用` 清掉所有 `disabled` 和冷却。
-- `✔ 完成` 结束登录流程（必须至少有一个 key）。
+- `➕ Add key` 再存一个。
+- `🗑 Remove key` 进入子菜单选择要删的 key。
+- `↻ Re-enable disabled keys` 清掉所有 `disabled` 和冷却。
+- `✔ Done` 结束登录流程（必须至少有一个 key）。
 
-选完 `✔ 完成` 后，Pi 会照常做登录收尾，并把当前 key 存进 `auth.json`。但我们的解析只认 key 池，所以那条 `auth.json` 记录只是顺带存的，不影响轮换。
+选完 `✔ Done` 后，Pi 会照常做登录收尾，并把当前 key 存进 `auth.json`。但我们的解析只认 key 池，所以那条 `auth.json` 记录只是顺带存的，不影响轮换。
 
 之后用 `/model` 选任意 `deepseek/*` 模型即可，轮换自动发生。
 
