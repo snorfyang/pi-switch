@@ -10,6 +10,7 @@
 - 如果池是空的但 Pi 已经存过一个 key（`auth.json`），**会自动导入**，不会再让你重新 paste。
 - 请求发出前用当前 key；如果**还没产生任何内容**就失败，自动换下一个 key 重发同一个请求，用户侧无感。
 - 失败自动分类：余额不足 / key 无效 → 永久禁用该 key；限流 → 冷却 30 秒。详见[运行时的判断与重试规则](#运行时的判断与重试规则)。
+- key 值自动去重：添加 / 编辑 / 导入时若池里已有相同值会被拒绝；读盘时也会折叠历史遗留的重复项。
 - 池里没有 key 时，行为跟内置 DeepSeek provider 完全一致（回退到 `auth.json` / `DEEPSEEK_API_KEY`）。
 - key 存在 `<agent-dir>/deepseek-keypool.json`，权限 `0600`。
 
@@ -82,11 +83,11 @@ DeepSeek key pool (2 stored)
 
   - `▶ Use this key` 设为当前（当前那个会显示 `● Already active`）。
   - `✎ Change label / Set label` 改名 / 加标签（留空清除）。
-  - `✎ Edit key value` 直接换成另一个 key（留空保持），会顺带清掉 disabled 状态。
+  - `✎ Edit key value` 直接换成另一个 key（留空保持），会顺带清掉 disabled 状态；如果新值和池里别的 key 重复会被拒绝。
   - `🗑 Remove this key` 删除（会先确认）。
   - `↩ Back` 回主菜单。
 
-- `➕ Add key` 再存一个：先粘贴 key，再问标签（可留空）。
+- `➕ Add key` 再存一个：先粘贴 key（若已在池里会提示 `Already in the pool` 并跳过），再问标签（可留空）。
 - `↻ Re-enable disabled keys` 清掉所有 `disabled` 和冷却。
 - `✔ Done` 结束登录流程（必须至少有一个 key）。
 
@@ -156,6 +157,8 @@ canRetry = 有失败分类
 ```
 
 `disabled` / `disabledReason` / `disabledAt` 由扩展在失败时写入；手动删掉就可以恢复。
+
+加载时会按 `key` 值去重（相同值只保留第一条），并在下一次写盘时清理掉文件里的重复项。
 
 ## 工作原理
 
